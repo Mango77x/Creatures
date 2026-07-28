@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 2
+**Last updated:** Phase 3
 
 ## Purpose
 
@@ -30,7 +30,7 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 
 - **Windowing/context**: GLFW creates the OS window and the OpenGL context (the connection between your code and the GPU driver).
 - **Function loading**: OpenGL's modern functions aren't declared by the OS headers on Windows (which only ship OpenGL 1.1). GLAD generates the loader that resolves the real function pointers from the driver at runtime.
-- **Camera**: an orbital camera — no free-fly controls. It orbits a fixed target point; mouse drag changes yaw/pitch around it, scroll changes distance. Implemented with GLM's view/projection matrices.
+- **Camera**: an orbital camera — no free-fly controls. It orbits a fixed target point; mouse drag changes yaw/pitch around it, scroll changes distance. Implemented with GLM's view/projection matrices. **This is a development/debug camera**, useful for inspecting the generated skeleton/mesh from any angle while building Phases 3-4. The final look locks the camera to a fixed oblique angle in Phase 5 (see `CLAUDE.md`'s architecture decisions) — the free orbit goes away then.
 - **UI**: Dear ImGui is initialized against the same GLFW window/OpenGL context (via its `imgui_impl_glfw` and `imgui_impl_opengl3` backends) and renders an empty panel, ready to host the DNA lab controls starting Phase 2.
 
 ## Phase 2 — DNA system
@@ -38,6 +38,12 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 - **`DNA` struct** (`src/DNA.h`): a flat set of numeric parameters — no genome language, no morphology graph. `legCount` is present but hardcoded to 4 for now, matching the fixed-quadruped-skeleton decision; it becomes meaningfully variable once body plans generalize past Phase 8.
 - **Generation** (`src/DNA.cpp`, `GenerateDNA(seed)`): seeds a `std::mt19937` with the given seed and draws each field in a fixed order via `std::uniform_real_distribution`. Same seed in → same DNA out, deterministically, because the RNG's sequence only depends on the seed and the fixed draw order.
 - **UI**: the ImGui panel exposes a seed field, a "Generate" button (regenerate from the typed seed), and a "Random seed" button (draws a seed from `std::random_device`), followed by a read-only listing of the resulting parameters.
+
+## Phase 3 — Skeleton generator
+
+- **`Skeleton` struct** (`src/Skeleton.h`): a flat list of joint positions (`glm::vec3`) plus a list of bone index pairs connecting them — no generic bone hierarchy/transform tree yet, since the skeleton is a fixed quadruped shape, not a variable rig.
+- **`BuildSkeleton(dna)`** (`src/Skeleton.cpp`): places joints procedurally from DNA fields — pelvis height from `bodyHeight`, spine/neck/tail directions and lengths from `bodyLength`/`neckLength`/`tailLength`, leg spacing from `bodyFat`. Feet are always projected to `y = 0` (ground level). `hornSize`/`eyeSize`/`earSize`/`muscle`/`aggressiveness` don't affect the skeleton — they're mesh/animation/behavior concerns for later phases.
+- **Debug rendering**: no mesh yet, so the skeleton draws as raw `GL_LINES` (bones) and `GL_POINTS` (joints) via a new unlit `line.vert`/`line.frag` shader pair (`Shader` class reused, just without the lighting normal that `basic.vert`/`basic.frag` expect). Re-uploaded to the GPU (`glBufferData`) every time DNA regenerates. The Phase 1 placeholder cube and `basic.vert`/`basic.frag` are retired from `main.cpp` for now — Phase 4 reintroduces lit shading once there's real mesh geometry to shade.
 
 ## Build & toolchain
 

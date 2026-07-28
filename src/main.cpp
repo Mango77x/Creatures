@@ -11,10 +11,12 @@
 #include <iostream>
 #include <string>
 #include <random>
+#include <vector>
 
 #include "Camera.h"
 #include "Shader.h"
 #include "DNA.h"
+#include "Skeleton.h"
 
 namespace {
     Camera* g_Camera = nullptr;
@@ -44,51 +46,25 @@ namespace {
         if (g_Camera) g_Camera->ProcessScroll(static_cast<float>(yOffset));
     }
 
-    // Unit cube (half-extent 0.75), position + normal per vertex, 6 faces x 2 triangles.
-    constexpr float kCubeVertices[] = {
-        // back (z-)
-        -0.75f, -0.75f, -0.75f,  0.0f,  0.0f, -1.0f,
-         0.75f,  0.75f, -0.75f,  0.0f,  0.0f, -1.0f,
-         0.75f, -0.75f, -0.75f,  0.0f,  0.0f, -1.0f,
-         0.75f,  0.75f, -0.75f,  0.0f,  0.0f, -1.0f,
-        -0.75f, -0.75f, -0.75f,  0.0f,  0.0f, -1.0f,
-        -0.75f,  0.75f, -0.75f,  0.0f,  0.0f, -1.0f,
-        // front (z+)
-        -0.75f, -0.75f,  0.75f,  0.0f,  0.0f,  1.0f,
-         0.75f, -0.75f,  0.75f,  0.0f,  0.0f,  1.0f,
-         0.75f,  0.75f,  0.75f,  0.0f,  0.0f,  1.0f,
-         0.75f,  0.75f,  0.75f,  0.0f,  0.0f,  1.0f,
-        -0.75f,  0.75f,  0.75f,  0.0f,  0.0f,  1.0f,
-        -0.75f, -0.75f,  0.75f,  0.0f,  0.0f,  1.0f,
-        // left (x-)
-        -0.75f,  0.75f,  0.75f, -1.0f,  0.0f,  0.0f,
-        -0.75f,  0.75f, -0.75f, -1.0f,  0.0f,  0.0f,
-        -0.75f, -0.75f, -0.75f, -1.0f,  0.0f,  0.0f,
-        -0.75f, -0.75f, -0.75f, -1.0f,  0.0f,  0.0f,
-        -0.75f, -0.75f,  0.75f, -1.0f,  0.0f,  0.0f,
-        -0.75f,  0.75f,  0.75f, -1.0f,  0.0f,  0.0f,
-        // right (x+)
-         0.75f,  0.75f,  0.75f,  1.0f,  0.0f,  0.0f,
-         0.75f, -0.75f, -0.75f,  1.0f,  0.0f,  0.0f,
-         0.75f,  0.75f, -0.75f,  1.0f,  0.0f,  0.0f,
-         0.75f, -0.75f, -0.75f,  1.0f,  0.0f,  0.0f,
-         0.75f,  0.75f,  0.75f,  1.0f,  0.0f,  0.0f,
-         0.75f, -0.75f,  0.75f,  1.0f,  0.0f,  0.0f,
-        // bottom (y-)
-        -0.75f, -0.75f, -0.75f,  0.0f, -1.0f,  0.0f,
-         0.75f, -0.75f, -0.75f,  0.0f, -1.0f,  0.0f,
-         0.75f, -0.75f,  0.75f,  0.0f, -1.0f,  0.0f,
-         0.75f, -0.75f,  0.75f,  0.0f, -1.0f,  0.0f,
-        -0.75f, -0.75f,  0.75f,  0.0f, -1.0f,  0.0f,
-        -0.75f, -0.75f, -0.75f,  0.0f, -1.0f,  0.0f,
-        // top (y+)
-        -0.75f,  0.75f, -0.75f,  0.0f,  1.0f,  0.0f,
-         0.75f,  0.75f,  0.75f,  0.0f,  1.0f,  0.0f,
-         0.75f,  0.75f, -0.75f,  0.0f,  1.0f,  0.0f,
-         0.75f,  0.75f,  0.75f,  0.0f,  1.0f,  0.0f,
-        -0.75f,  0.75f, -0.75f,  0.0f,  1.0f,  0.0f,
-        -0.75f,  0.75f,  0.75f,  0.0f,  1.0f,  0.0f,
-    };
+    std::vector<float> FlattenBoneEndpoints(const Skeleton& skeleton) {
+        std::vector<float> data;
+        data.reserve(skeleton.bones.size() * 2 * 3);
+        for (const auto& bone : skeleton.bones) {
+            const glm::vec3& a = skeleton.joints[bone.first];
+            const glm::vec3& b = skeleton.joints[bone.second];
+            data.insert(data.end(), {a.x, a.y, a.z, b.x, b.y, b.z});
+        }
+        return data;
+    }
+
+    std::vector<float> FlattenJoints(const Skeleton& skeleton) {
+        std::vector<float> data;
+        data.reserve(skeleton.joints.size() * 3);
+        for (const glm::vec3& p : skeleton.joints) {
+            data.insert(data.end(), {p.x, p.y, p.z});
+        }
+        return data;
+    }
 }
 
 int main() {
@@ -131,23 +107,43 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    Shader shader(std::string(CREATURES_SHADER_DIR) + "basic.vert",
-                  std::string(CREATURES_SHADER_DIR) + "basic.frag");
+    Shader lineShader(std::string(CREATURES_SHADER_DIR) + "line.vert",
+                       std::string(CREATURES_SHADER_DIR) + "line.frag");
 
-    GLuint vao, vbo;
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(kCubeVertices), kCubeVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    GLuint boneVao, boneVbo, jointVao, jointVbo;
+    glGenVertexArrays(1, &boneVao);
+    glGenBuffers(1, &boneVbo);
+    glBindVertexArray(boneVao);
+    glBindBuffer(GL_ARRAY_BUFFER, boneVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
+
+    glGenVertexArrays(1, &jointVao);
+    glGenBuffers(1, &jointVbo);
+    glBindVertexArray(jointVao);
+    glBindBuffer(GL_ARRAY_BUFFER, jointVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
     glBindVertexArray(0);
 
     uint32_t seedInput = 1;
     DNA currentDNA = GenerateDNA(seedInput);
+    Skeleton currentSkeleton = BuildSkeleton(currentDNA);
+    int boneVertexCount = 0;
+    int jointVertexCount = 0;
+
+    auto uploadSkeleton = [&](const Skeleton& skeleton) {
+        std::vector<float> boneData = FlattenBoneEndpoints(skeleton);
+        boneVertexCount = static_cast<int>(boneData.size() / 3);
+        glBindBuffer(GL_ARRAY_BUFFER, boneVbo);
+        glBufferData(GL_ARRAY_BUFFER, boneData.size() * sizeof(float), boneData.data(), GL_DYNAMIC_DRAW);
+
+        std::vector<float> jointData = FlattenJoints(skeleton);
+        jointVertexCount = static_cast<int>(jointData.size() / 3);
+        glBindBuffer(GL_ARRAY_BUFFER, jointVbo);
+        glBufferData(GL_ARRAY_BUFFER, jointData.size() * sizeof(float), jointData.data(), GL_DYNAMIC_DRAW);
+    };
+    uploadSkeleton(currentSkeleton);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -161,11 +157,15 @@ int main() {
         ImGui::InputScalar("Seed", ImGuiDataType_U32, &seedInput);
         if (ImGui::Button("Generate")) {
             currentDNA = GenerateDNA(seedInput);
+            currentSkeleton = BuildSkeleton(currentDNA);
+            uploadSkeleton(currentSkeleton);
         }
         ImGui::SameLine();
         if (ImGui::Button("Random seed")) {
             seedInput = std::random_device{}();
             currentDNA = GenerateDNA(seedInput);
+            currentSkeleton = BuildSkeleton(currentDNA);
+            uploadSkeleton(currentSkeleton);
         }
         ImGui::Separator();
         ImGui::Text("seed: %u", currentDNA.seed);
@@ -190,14 +190,19 @@ int main() {
 
         float aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
 
-        shader.Use();
-        shader.SetMat4("uModel", glm::mat4(1.0f));
-        shader.SetMat4("uView", camera.GetViewMatrix());
-        shader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
-        shader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
+        lineShader.Use();
+        lineShader.SetMat4("uModel", glm::mat4(1.0f));
+        lineShader.SetMat4("uView", camera.GetViewMatrix());
+        lineShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
 
-        glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        lineShader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
+        glBindVertexArray(boneVao);
+        glDrawArrays(GL_LINES, 0, boneVertexCount);
+
+        lineShader.SetVec3("uColor", glm::vec3(1.0f, 0.85f, 0.2f));
+        glPointSize(8.0f);
+        glBindVertexArray(jointVao);
+        glDrawArrays(GL_POINTS, 0, jointVertexCount);
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -205,8 +210,10 @@ int main() {
         glfwSwapBuffers(window);
     }
 
-    glDeleteVertexArrays(1, &vao);
-    glDeleteBuffers(1, &vbo);
+    glDeleteVertexArrays(1, &boneVao);
+    glDeleteBuffers(1, &boneVbo);
+    glDeleteVertexArrays(1, &jointVao);
+    glDeleteBuffers(1, &jointVbo);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
