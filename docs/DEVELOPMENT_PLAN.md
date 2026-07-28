@@ -24,12 +24,12 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** the same seed always reproduces the same DNA values; a different seed gives different values. Verified: same seed re-generates identical parameters, different seeds diverge.
 
-## Phase 3 — Skeleton generator
+## Phase 3 — Skeleton generator (done)
 
-- [ ] Fixed quadruped hierarchy: Pelvis → Spine → Neck → Head / Tail, 4 legs
-- [ ] Skeleton built procedurally from DNA parameters
+- [x] Fixed quadruped hierarchy: Pelvis → Spine → Neck → Head / Tail, 4 legs
+- [x] Skeleton built procedurally from DNA parameters
 
-**Tangible result:** changing a DNA parameter in the panel reshapes the skeleton's proportions live.
+**Tangible result:** changing a DNA parameter in the panel reshapes the skeleton's proportions live. Verified: drawn as a debug stick figure (green bone lines + yellow joint points), reshapes on Generate/Random seed. Rendered with the free orbital dev camera — see the Phase 5 note about locking the camera to a fixed angle later.
 
 ## Phase 4 — Mesh generator
 
@@ -42,8 +42,9 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 - [ ] Pixel-art / low-poly shading
 - [ ] Deliberate detail reduction for the organic look
+- [ ] Lock the camera to a fixed oblique/dimetric angle (matching the Critter Crosser reference) — retires the free orbital camera from Phase 1, which was a development/debug convenience only
 
-**Tangible result:** visible jump from generic gray geometry to the project's final visual style.
+**Tangible result:** visible jump from generic gray geometry to the project's final visual style, viewed from the final fixed camera angle instead of free orbit.
 
 ## Phase 6 — Procedural animation
 

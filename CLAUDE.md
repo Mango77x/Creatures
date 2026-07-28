@@ -47,6 +47,7 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 - **Patas**: raycast + IK (FABRIK o CCD) + ajuste de pelvis/columna para adaptación a terreno.
 - **Esqueleto inicial**: jerarquía fija tipo cuadrúpedo (Pelvis → Spine → Neck → Head / Tail; 4 patas). No generalizar a grafo arbitrario ni a otros planes corporales hasta que el cuadrúpedo funcione de punta a punta.
 - **Renderizado**: geometría simple por hueso (cápsulas/cilindros/esferas) + reducción deliberada de detalle + shader pixel-art. Nada de PBR ni sombras dinámicas complejas.
+- **Cámara final fija, no orbital libre** (decisión 28/07/2026): el visor final debe presentar la criatura desde un ángulo oblicuo/dimétrico fijo, igual que Critter Crosser (ver "Referencia visual"), no con órbita libre controlada por el usuario. La cámara orbital de la Fase 1 se mantiene como herramienta de desarrollo/depuración mientras se construyen esqueleto (Fase 3) y malla (Fase 4) — es útil para inspeccionar la criatura desde cualquier ángulo mientras se generan. Se bloquea al ángulo fijo definitivo en la Fase 5, junto con el shader pixel-art, como parte de fijar la presentación visual final.
 
 ## Stack técnico
 
@@ -74,11 +75,11 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 ## Roadmap (fases)
 
-1. Ventana OpenGL + contexto + cámara orbital básica + ImGui inicializado.
+1. Ventana OpenGL + contexto + cámara orbital básica (herramienta de desarrollo, ver decisión de cámara fija) + ImGui inicializado.
 2. Sistema de ADN: struct/array de parámetros + seed + generación pseudoaleatoria reproducible.
 3. Generador de esqueleto: jerarquía fija de cuadrúpedo a partir del ADN.
 4. Generador de malla: geometría procedural simple por hueso (cápsulas/cilindros), unión de piezas.
-5. Shaders: pixel shading + reducción de detalle para el look "orgánico low-poly".
+5. Shaders: pixel shading + reducción de detalle para el look "orgánico low-poly" + bloquear la cámara al ángulo oblicuo/dimétrico fijo definitivo (fin de la cámara orbital libre).
 6. Animación procedural: respiración, cadena follow-the-leader para cuello/cola, mirada de cabeza hacia un objetivo.
 7. Inverse Kinematics de patas (FABRIK o CCD) + ciclo de marcha (paso/trote) independiente del número de patas.
 8. Adaptación a terreno: raycast por pata + ajuste de pelvis/columna/cuello.
@@ -91,7 +92,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 2 — completada.** Struct de ADN plano + generación reproducible por seed (`std::mt19937`) + panel ImGui con seed/generar/seed aleatorio y listado de parámetros. Verificado: mismo seed reproduce los mismos valores.
 
-**Fase 3 — sin empezar.** Objetivo inmediato: generador de esqueleto de cuadrúpedo (Pelvis → Spine → Neck → Head / Tail, 4 patas) a partir del ADN. Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 3 — completada.** Esqueleto de cuadrúpedo generado desde el ADN, dibujado como figura de palo de depuración (líneas + puntos) con la cámara orbital libre de desarrollo. Verificado: las proporciones cambian con cada seed.
+
+**Fase 4 — sin empezar.** Objetivo inmediato: generador de malla (cápsulas/cilindros por hueso) a partir del esqueleto. Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 
