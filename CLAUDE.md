@@ -102,7 +102,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 7 — completada.** Cada pata pasó a tener rodilla (Hip→Knee→Foot, 3 huesos) resuelta con un solver FABRIK real; ciclo de marcha procedural sin estado (`ComputeFootTarget`) con patrón de trote diagonal; la criatura camina en círculo alrededor del target fijo de la cámara sobre un plano de suelo visible. Todo el cálculo de IK/marcha ocurre en espacio local del esqueleto; el movimiento del cuerpo solo afecta el `uModel` de render. Sin raycast/adaptación de terreno todavía (eso es Fase 8, suelo plano por ahora). Verificado: patas dobladas de rodilla visibles, marcha tipo trote.
 
-**Fase 8 — sin empezar.** Objetivo inmediato: adaptación a terreno (raycast por pata + ajuste de pelvis/columna/cuello). Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 8 — completada.** Terreno con relieve real (heightfield analítico, "raycast" = muestreo directo de altura), inclinación de pelvis/columna ajustada a los 4 puntos de apoyo, y IK de pata cambiado de FABRIK genérico a un solver analítico de 2 huesos (`SolveTwoBoneIK`) tras descubrir que FABRIK podía doblar la rodilla al lado incorrecto en una cadena de solo 2 segmentos. La pose de reposo de las patas ahora tiene flexión de rodilla natural permanente (más alcance total que la altura de pie, `kStandCrouchFactor`), evitando el aspecto rígido tipo pingüino. Se sustituyó el camino circular fijo por seguimiento del ratón (proyectado al suelo) con paredes de límite en los bordes del terreno. Verificado en varias iteraciones con el usuario, incluyendo un terreno diagonal a propósito para confirmar que cada pata se ajusta de forma independiente más allá de la inclinación global del cuerpo.
+
+**Fase 9 — sin empezar.** Objetivo inmediato: cruce genético (interpolación de dos ADN + herencia de rasgos discretos + mutación). Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 

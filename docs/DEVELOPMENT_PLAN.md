@@ -61,12 +61,16 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** the creature walks across a flat plane. Verified: diagonal trot with visible knee bending, looping around the fixed camera target on a visible ground plane. No terrain raycast/adaptation yet — that's Phase 8, this phase is flat ground only.
 
-## Phase 8 — Terrain adaptation
+## Phase 8 — Terrain adaptation (done)
 
-- [ ] Per-leg raycast against terrain
-- [ ] Pelvis/spine/neck adjustment to match footing
+- [x] Per-leg raycast against terrain
+- [x] Pelvis/spine/neck adjustment to match footing
 
-**Tangible result:** the creature walks over uneven terrain without clipping or looking rigid.
+**Tangible result:** the creature walks over uneven terrain without clipping or looking rigid. Verified over several iterations:
+- Per-leg heightfield "raycast" (direct height sample — see `Terrain.h`) + body pitch/roll fit to the four contact points, with each leg's own IK reaching the residual the fitted plane doesn't explain (confirmed with a deliberately diagonal terrain wave that a single tilt plane can't fully capture).
+- Switched leg IK from generic FABRIK to an analytic 2-bone solver (`SolveTwoBoneIK`) after finding FABRIK could flip the knee the wrong way on a 2-segment chain with no explicit bend-direction constraint.
+- Gave the rest pose real standing crouch (leg segments reach further than the standing height, `kStandCrouchFactor` in `Skeleton.cpp`) after noticing legs looked penguin-stiff on flat ground — real legged animals never fully straighten their legs.
+- Added mouse-follow steering (unprojected cursor → ground plane) and boundary walls, replacing the fixed circular walk path, to make terrain adaptation actually testable across the whole terrain instead of one small loop.
 
 ## Phase 9 — Crossbreeding
 
