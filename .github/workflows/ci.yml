@@ -12,11 +12,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: '3.x'
+
       - name: Install GLAD codegen dependencies
-        run: pip install jinja2
+        run: python -m pip install jinja2
 
       - name: Configure
-        run: cmake -B build -S .
+        run: cmake -B build -S . -DPython3_EXECUTABLE="${{ steps.setup-python.outputs.python-path }}"
 
       - name: Build
         run: cmake --build build --config Release
