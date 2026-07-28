@@ -22,3 +22,6 @@ _deps/
 # OS
 Thumbs.db
 Desktop.ini
+
+# Local visual reference material (not ours to redistribute)
+reference/
