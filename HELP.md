@@ -34,4 +34,4 @@ A window should open with an orbital camera (drag the mouse to rotate, scroll to
 
 ## Known tricky bugs
 
-_(none yet — this section will log anything non-obvious found while building each phase)_
+- **GLAD configure fails with `ModuleNotFoundError: No module named 'jinja2'`**: GLAD2's CMake integration (`glad_add_library`) shells out to its own Python generator at build time, which needs `jinja2` installed for whatever Python interpreter CMake found. Fix: `python -m pip install jinja2` (installs `MarkupSafe` as a dependency too), then re-run the build. This is a one-time machine setup step, not a CMakeLists issue.
