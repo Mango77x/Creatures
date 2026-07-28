@@ -38,13 +38,13 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** a solid, recognizable 3D creature on screen, generated from a seed. Verified: solid lit creature (body, tapered neck/tail, rounded head and feet) reshapes with each seed. Debug skeleton overlay (toggle in the panel) draws with depth testing disabled so it stays visible on top of the mesh instead of being hidden inside it.
 
-## Phase 5 — Shaders
+## Phase 5 — Shaders (done)
 
-- [ ] Pixel-art / low-poly shading
-- [ ] Deliberate detail reduction for the organic look
-- [ ] Lock the camera to a fixed oblique/dimetric angle (matching the Critter Crosser reference) — retires the free orbital camera from Phase 1, which was a development/debug convenience only
+- [x] Pixel-art / low-poly shading
+- [x] Deliberate detail reduction for the organic look
+- [x] Lock the camera to a fixed oblique/dimetric angle (matching the Critter Crosser reference) — retires the free orbital camera from Phase 1, which was a development/debug convenience only
 
-**Tangible result:** visible jump from generic gray geometry to the project's final visual style, viewed from the final fixed camera angle instead of free orbit.
+**Tangible result:** visible jump from generic gray geometry to the project's final visual style, viewed from the final fixed camera angle instead of free orbit. Verified against real Critter Crosser screenshots (`reference/critter-crosser/`): no cartoon outline (matches), flat-banded shading instead of a smooth gradient (matches), real pixel-art blockiness from the low-res render pass (matches in spirit). Known gaps intentionally deferred, not Phase 5 scope: single-hue coloring vs. the reference's multi-tone palettes, and no distinct horn/eye/ear geometry yet (DNA already carries `hornSize`/`eyeSize`/`earSize`, but the Phase 4 mesh generator only uses them to size the head capsule, not as separate shapes).
 
 ## Phase 6 — Procedural animation
 

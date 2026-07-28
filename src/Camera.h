@@ -4,9 +4,12 @@
 
 class Camera {
 public:
-    Camera(glm::vec3 target = glm::vec3(0.0f), float distance = 6.0f);
+    // yaw/pitch default to Creatures' fixed oblique/dimetric viewing angle
+    // (see CLAUDE.md's camera decision) — free rotation was a Phase 1-4
+    // development convenience, not the final look.
+    Camera(glm::vec3 target = glm::vec3(0.0f, 1.0f, 1.0f), float distance = 6.0f,
+           float yawRadians = glm::radians(45.0f), float pitchRadians = glm::radians(32.0f));
 
-    void ProcessMouseDrag(float dxPixels, float dyPixels);
     void ProcessScroll(float yOffset);
 
     glm::mat4 GetViewMatrix() const;

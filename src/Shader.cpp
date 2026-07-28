@@ -67,3 +67,8 @@ void Shader::SetVec3(const std::string& name, const glm::vec3& value) const {
     GLint location = glGetUniformLocation(m_ProgramId, name.c_str());
     glUniform3fv(location, 1, &value[0]);
 }
+
+void Shader::SetInt(const std::string& name, int value) const {
+    GLint location = glGetUniformLocation(m_ProgramId, name.c_str());
+    glUniform1i(location, value);
+}
