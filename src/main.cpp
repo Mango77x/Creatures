@@ -320,23 +320,41 @@ int main() {
         ImGui::SliderFloat("Stride length", &gaitParams.strideLength, 0.1f, 1.0f);
         ImGui::SliderFloat("Lift height", &gaitParams.liftHeight, 0.02f, 0.4f);
         ImGui::Separator();
+        // Live-editable DNA (Phase 9): every field here writes straight into
+        // currentDNA and the skeleton/mesh rebuild every frame below, so
+        // dragging a slider reshapes/recolors the creature immediately —
+        // hand-tuning on top of a seed, the same "start from a generated
+        // beast, then tweak it" workflow as Critter Crosser's own editor
+        // (see the screenshots discussed in CLAUDE.md), just DNA-driven
+        // instead of a per-segment manual sculpt.
         ImGui::Text("seed: %u", currentDNA.seed);
-        ImGui::Text("bodyLength: %.3f", currentDNA.bodyLength);
-        ImGui::Text("bodyHeight: %.3f", currentDNA.bodyHeight);
-        ImGui::Text("neckLength: %.3f", currentDNA.neckLength);
-        ImGui::Text("tailLength: %.3f", currentDNA.tailLength);
-        ImGui::Text("legCount: %d", currentDNA.legCount);
-        ImGui::Text("hornSize: %.3f", currentDNA.hornSize);
-        ImGui::Text("eyeSize: %.3f", currentDNA.eyeSize);
-        ImGui::Text("earSize: %.3f", currentDNA.earSize);
-        ImGui::Text("bodyFat: %.3f", currentDNA.bodyFat);
-        ImGui::Text("muscle: %.3f", currentDNA.muscle);
-        ImGui::Text("aggressiveness: %.3f", currentDNA.aggressiveness);
-        ImGui::Text("bodyHue: %.3f", currentDNA.bodyHue);
-        ImGui::Text("accentHueShift: %.3f", currentDNA.accentHueShift);
-        ImGui::Text("colorSaturation: %.3f", currentDNA.colorSaturation);
-        ImGui::Text("colorValue: %.3f", currentDNA.colorValue);
+        ImGui::TextUnformatted("Body");
+        ImGui::SliderFloat("bodyLength", &currentDNA.bodyLength, 0.5f, 2.0f);
+        ImGui::SliderFloat("bodyHeight", &currentDNA.bodyHeight, 0.35f, 1.35f);
+        ImGui::SliderFloat("neckLength", &currentDNA.neckLength, 0.15f, 1.8f);
+        ImGui::SliderFloat("tailLength", &currentDNA.tailLength, 0.15f, 2.2f);
+        ImGui::SliderFloat("bodyFat", &currentDNA.bodyFat, 0.0f, 1.0f);
+        ImGui::SliderFloat("muscle", &currentDNA.muscle, 0.0f, 1.0f);
+        ImGui::SliderFloat("aggressiveness", &currentDNA.aggressiveness, 0.0f, 1.0f); // not wired to any visual yet
+        ImGui::TextUnformatted("Details");
+        ImGui::SliderFloat("hornSize", &currentDNA.hornSize, 0.0f, 0.6f);
+        ImGui::SliderFloat("eyeSize", &currentDNA.eyeSize, 0.05f, 0.3f);
+        ImGui::SliderFloat("earSize", &currentDNA.earSize, 0.05f, 0.4f);
+        ImGui::Text("legCount: %d", currentDNA.legCount); // fixed quadruped, see CLAUDE.md
+        ImGui::TextUnformatted("Color");
+        ImGui::SliderFloat("bodyHue", &currentDNA.bodyHue, 0.0f, 1.0f);
+        ImGui::SliderFloat("accentHueShift", &currentDNA.accentHueShift, -0.45f, 0.45f);
+        ImGui::SliderFloat("colorSaturation", &currentDNA.colorSaturation, 0.0f, 1.0f);
+        ImGui::SliderFloat("colorValue", &currentDNA.colorValue, 0.0f, 1.0f);
         ImGui::End();
+
+        // Rebuilt every frame (cheap: no allocation beyond a small vector,
+        // plain arithmetic) so any slider drag above reshapes the rest pose
+        // immediately. The follow-the-leader animation state isn't reset
+        // here (only Generate/Random seed do that) — it smoothly eases
+        // toward the new rest pose instead of snapping, which reads as the
+        // creature reshaping live rather than jump-cutting.
+        currentSkeleton = BuildSkeleton(currentDNA);
 
         float currentTime = static_cast<float>(glfwGetTime());
         float dt = currentTime - lastTime;

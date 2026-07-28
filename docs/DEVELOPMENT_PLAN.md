@@ -85,8 +85,10 @@ Every seed was reading as visually similar ("the same ugly giraffe") regardless 
 - [x] `kCreatureScale` (`Skeleton.h`) — creature was several terrain blocks long vs. the reference's ~1 block; single global scale constant applied to skeleton + mesh radii, animation/gait constants scaled to match
 - [x] Elliptical (non-circular) bone cross-sections for spine/neck/head (`CreatureMesh.cpp`'s `CrossSectionScale`) — legs stay circular since their near-vertical axis doesn't give `PerpendicularBasis` an anatomically meaningful side/up to flatten
 - [x] 3-tone palette (`BellyColor` in `Palette.h/.cpp`) — lighter/less-saturated underside band on spine/neck/tail, split at the cross-section's equator with per-vertex color interpolation softening the seam
+- [x] Live-editable DNA panel — proportions/details/color are ImGui sliders writing straight into `currentDNA`, skeleton rebuilt every frame so edits reshape the creature immediately (inspired by RujiK's own in-game editor, kept DNA-driven rather than per-segment manual sculpting)
+- [x] Segmented spine (`Skeleton.cpp`'s `SpineProfile`) — 4 tapered sub-bones with a barrel width profile (fuller mid-body, narrower at both attachments, modulated by `bodyFat`) instead of one uniform-taper cylinder
 
-**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped creatures — non-tubular bodies with a paler belly band — at roughly the right scale relative to a blocky, fully-framed map. No further concrete items queued; stays open until the user confirms creatures look good on their own (see the phase intro above).
+**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped, non-tubular creatures with a paler belly band, at roughly the right scale relative to a blocky, fully-framed map, and any DNA field can be hand-tuned live from the panel. No further concrete items queued; stays open until the user confirms creatures look good on their own (see the phase intro above).
 
 ## Phase 10 — Crossbreeding (blocked until Phase 9 closes)
 

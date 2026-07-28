@@ -1,7 +1,19 @@
 #include "Skeleton.h"
 #include "IK.h"
 
+#include <glm/gtc/constants.hpp>
+
 namespace {
+    // Spine width-profile multiplier at fraction t (0 = pelvis, 1 = chest):
+    // narrowest at both attachments, fullest mid-body — a barrel ribcage
+    // instead of a uniform-taper tube. bodyFat pushes the mid-body bulge
+    // further out; a lean creature reads closer to a plain cylinder.
+    float SpineProfile(float t, float bodyFat) {
+        constexpr float kMinScale = 0.7f;
+        float bulge = (1.0f - kMinScale) + bodyFat * 0.15f;
+        return kMinScale + bulge * sinf(t * glm::pi<float>());
+    }
+
     // Real legged animals never fully straighten their legs, even standing
     // still on flat ground — a dog, cat, or human keeps a small permanent
     // knee bend. Giving each leg more total reach (upper + lower segment)
@@ -57,6 +69,15 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[TailMid] = tailMid;
     j[TailTip] = tailTip;
 
+    // Spine segmentation (Phase 9): three evenly-spaced points between
+    // Pelvis and ChestEnd, straight-line interpolated (the spine's rest pose
+    // is a straight line regardless — segmentation is purely a mesh/profile
+    // change here, not a bend). See SpineProfile for the width each segment
+    // tapers to/from.
+    j[SpineSeg1] = glm::mix(pelvis, chestEnd, 0.25f);
+    j[SpineSeg2] = glm::mix(pelvis, chestEnd, 0.5f);
+    j[SpineSeg3] = glm::mix(pelvis, chestEnd, 0.75f);
+
     // Head appendages, offset from HeadTip. hornSize/earSize/eyeSize already
     // existed in DNA but only sized the head capsule before Phase 9 — here
     // they place actual small bone chains (horn/ears) and a point (eyes).
@@ -101,8 +122,21 @@ Skeleton BuildSkeleton(const DNA& dna) {
     BuildLeg(j, BackLeftHip, BackLeftKnee, BackLeftFoot, backHipBase - right * sideOffset, legLength, forward);
     BuildLeg(j, BackRightHip, BackRightKnee, BackRightFoot, backHipBase + right * sideOffset, legLength, forward);
 
+    const float spineProfile0 = SpineProfile(0.0f, dna.bodyFat);
+    const float spineProfile1 = SpineProfile(0.25f, dna.bodyFat);
+    const float spineProfile2 = SpineProfile(0.5f, dna.bodyFat);
+    const float spineProfile3 = SpineProfile(0.75f, dna.bodyFat);
+    const float spineProfile4 = SpineProfile(1.0f, dna.bodyFat);
+
     skeleton.bones = {
-        {Pelvis, ChestEnd, BoneKind::Spine},
+        // Spine as 4 tapered segments instead of 1 uniform cylinder — see
+        // SpineProfile. Reuses the existing per-end radiusScale mechanism
+        // (same one the tail already uses to narrow to a point), just with
+        // more segments in the chain.
+        {Pelvis, SpineSeg1, BoneKind::Spine, spineProfile0, spineProfile1},
+        {SpineSeg1, SpineSeg2, BoneKind::Spine, spineProfile1, spineProfile2},
+        {SpineSeg2, SpineSeg3, BoneKind::Spine, spineProfile2, spineProfile3},
+        {SpineSeg3, ChestEnd, BoneKind::Spine, spineProfile3, spineProfile4},
         {ChestEnd, NeckEnd, BoneKind::Neck},
         {NeckEnd, HeadTip, BoneKind::Head},
         {HeadTip, HornTip, BoneKind::Horn, 1.0f, 0.05f},
