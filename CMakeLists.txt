@@ -79,6 +79,7 @@ add_executable(Creatures
     src/Animation.cpp
     src/IK.cpp
     src/Gait.cpp
+    src/Terrain.cpp
 )
 
 target_link_libraries(Creatures PRIVATE

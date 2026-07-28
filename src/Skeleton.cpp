@@ -1,4 +1,33 @@
 #include "Skeleton.h"
+#include "IK.h"
+
+namespace {
+    // Real legged animals never fully straighten their legs, even standing
+    // still on flat ground — a dog, cat, or human keeps a small permanent
+    // knee bend. Giving each leg more total reach (upper + lower segment)
+    // than the actual standing height leaves slack that forces that bend,
+    // instead of the segments summing to almost exactly the hip-to-ground
+    // distance (which reads as stiff, penguin-straight legs).
+    constexpr float kStandCrouchFactor = 0.82f;
+
+    // Builds a leg's hip/knee/foot joints with a natural resting bend, using
+    // the same analytic 2-bone solver the runtime IK uses — so the rest pose
+    // is self-consistent with how the leg actually articulates later.
+    void BuildLeg(std::vector<glm::vec3>& joints, int hipIdx, int kneeIdx, int footIdx,
+                  const glm::vec3& hipPos, float standHeight, const glm::vec3& forward) {
+        glm::vec3 footPos(hipPos.x, 0.0f, hipPos.z);
+        float totalReach = standHeight / kStandCrouchFactor;
+        float upperLength = totalReach * 0.5f;
+        float lowerLength = totalReach * 0.5f;
+
+        glm::vec3 solvedFoot;
+        glm::vec3 kneePos = SolveTwoBoneIK(hipPos, footPos, upperLength, lowerLength, forward, solvedFoot);
+
+        joints[hipIdx] = hipPos;
+        joints[kneeIdx] = kneePos;
+        joints[footIdx] = footPos;
+    }
+}
 
 Skeleton BuildSkeleton(const DNA& dna) {
     Skeleton skeleton;
@@ -31,26 +60,11 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const float sideOffset = 0.3f + dna.bodyFat * 0.3f;
     const glm::vec3 frontHipBase = chestEnd - forward * 0.15f;
     const glm::vec3 backHipBase = pelvis + forward * 0.15f;
-    // Small forward bend so the knee has a consistent direction to fold
-    // toward — without this a straight hip-foot line gives FABRIK no hint
-    // about which way to bend the leg.
-    const glm::vec3 kneeBendHint = forward * 0.08f;
 
-    j[FrontLeftHip] = frontHipBase - right * sideOffset;
-    j[FrontLeftFoot] = glm::vec3(j[FrontLeftHip].x, 0.0f, j[FrontLeftHip].z);
-    j[FrontLeftKnee] = (j[FrontLeftHip] + j[FrontLeftFoot]) * 0.5f + kneeBendHint;
-
-    j[FrontRightHip] = frontHipBase + right * sideOffset;
-    j[FrontRightFoot] = glm::vec3(j[FrontRightHip].x, 0.0f, j[FrontRightHip].z);
-    j[FrontRightKnee] = (j[FrontRightHip] + j[FrontRightFoot]) * 0.5f + kneeBendHint;
-
-    j[BackLeftHip] = backHipBase - right * sideOffset;
-    j[BackLeftFoot] = glm::vec3(j[BackLeftHip].x, 0.0f, j[BackLeftHip].z);
-    j[BackLeftKnee] = (j[BackLeftHip] + j[BackLeftFoot]) * 0.5f + kneeBendHint;
-
-    j[BackRightHip] = backHipBase + right * sideOffset;
-    j[BackRightFoot] = glm::vec3(j[BackRightHip].x, 0.0f, j[BackRightHip].z);
-    j[BackRightKnee] = (j[BackRightHip] + j[BackRightFoot]) * 0.5f + kneeBendHint;
+    BuildLeg(j, FrontLeftHip, FrontLeftKnee, FrontLeftFoot, frontHipBase - right * sideOffset, legLength, forward);
+    BuildLeg(j, FrontRightHip, FrontRightKnee, FrontRightFoot, frontHipBase + right * sideOffset, legLength, forward);
+    BuildLeg(j, BackLeftHip, BackLeftKnee, BackLeftFoot, backHipBase - right * sideOffset, legLength, forward);
+    BuildLeg(j, BackRightHip, BackRightKnee, BackRightFoot, backHipBase + right * sideOffset, legLength, forward);
 
     skeleton.bones = {
         {Pelvis, ChestEnd, BoneKind::Spine},

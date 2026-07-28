@@ -16,6 +16,7 @@
 #include <vector>
 #include <cstddef>
 #include <algorithm>
+#include <cmath>
 
 #include "Camera.h"
 #include "Shader.h"
@@ -25,6 +26,7 @@
 #include "Animation.h"
 #include "IK.h"
 #include "Gait.h"
+#include "Terrain.h"
 
 namespace {
     Camera* g_Camera = nullptr;
@@ -172,25 +174,37 @@ int main() {
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 
-    // Flat ground plane, world-fixed (never moves with the creature's body transform).
-    constexpr float kGroundHalfSize = 6.0f;
-    constexpr float kGroundVertices[] = {
-        -kGroundHalfSize, 0.0f, -kGroundHalfSize,  0.0f, 1.0f, 0.0f,
-         kGroundHalfSize, 0.0f, -kGroundHalfSize,  0.0f, 1.0f, 0.0f,
-         kGroundHalfSize, 0.0f,  kGroundHalfSize,  0.0f, 1.0f, 0.0f,
-         kGroundHalfSize, 0.0f,  kGroundHalfSize,  0.0f, 1.0f, 0.0f,
-        -kGroundHalfSize, 0.0f,  kGroundHalfSize,  0.0f, 1.0f, 0.0f,
-        -kGroundHalfSize, 0.0f, -kGroundHalfSize,  0.0f, 1.0f, 0.0f,
-    };
-    GLuint groundVao, groundVbo;
-    glGenVertexArrays(1, &groundVao);
-    glGenBuffers(1, &groundVbo);
-    glBindVertexArray(groundVao);
-    glBindBuffer(GL_ARRAY_BUFFER, groundVbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(kGroundVertices), kGroundVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    // Uneven terrain, world-fixed (never moves with the creature's body
+    // transform) — a heightfield built from TerrainHeight, so per-leg
+    // "raycasting" is a direct height sample rather than ray/mesh intersection.
+    constexpr float kTerrainHalfSize = 6.0f;
+    std::vector<MeshVertex> terrainData = BuildTerrainMesh(kTerrainHalfSize, 40);
+    int terrainVertexCount = static_cast<int>(terrainData.size());
+    GLuint terrainVao, terrainVbo;
+    glGenVertexArrays(1, &terrainVao);
+    glGenBuffers(1, &terrainVbo);
+    glBindVertexArray(terrainVao);
+    glBindBuffer(GL_ARRAY_BUFFER, terrainVbo);
+    glBufferData(GL_ARRAY_BUFFER, terrainData.size() * sizeof(MeshVertex), terrainData.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, position));
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, normal));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
+    // Boundary walls, marking (and enforcing, via a position clamp below) the
+    // edge of the world so steering toward the mouse can't walk off it.
+    std::vector<MeshVertex> wallData = BuildBoundaryWalls(kTerrainHalfSize, -0.6f, 1.0f);
+    int wallVertexCount = static_cast<int>(wallData.size());
+    GLuint wallVao, wallVbo;
+    glGenVertexArrays(1, &wallVao);
+    glGenBuffers(1, &wallVbo);
+    glBindVertexArray(wallVao);
+    glBindBuffer(GL_ARRAY_BUFFER, wallVbo);
+    glBufferData(GL_ARRAY_BUFFER, wallData.size() * sizeof(MeshVertex), wallData.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, position));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, normal));
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 
@@ -257,8 +271,14 @@ int main() {
         {BackRightHip, BackRightKnee, BackRightFoot, 0.0f},
     };
 
-    constexpr float kWalkRadius = 1.6f;
-    constexpr float kWalkAngularSpeed = 0.6f; // rad/s — creature loops around the fixed camera target
+    // Persistent movement state: the creature steers toward wherever the
+    // mouse points on the ground, instead of following a closed-form path.
+    glm::vec3 bodyPos(0.0f, 0.0f, 0.0f);
+    float bodyYaw = 0.0f;
+    float gaitTime = 0.0f; // only advances while actually moving, so legs don't march in place when idle
+    constexpr float kWalkSpeed = 0.9f;         // units/sec
+    constexpr float kWallMargin = 0.6f;
+    constexpr float kStopDistance = 0.05f;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -315,45 +335,123 @@ int main() {
 
         Skeleton animatedSkeleton = ApplyAnimation(animState, currentSkeleton, currentTime, dt, lookAtTarget);
 
-        // Feet targets and IK are solved in the body's own local space (same
-        // space the rest-pose skeleton lives in) — the walk path only affects
-        // uModel at render time, so the solver never needs to know about it.
-        for (const LegDescriptor& leg : legs) {
-            glm::vec3 restFootLocal = currentSkeleton.joints[leg.foot];
-            glm::vec3 footTarget = ComputeFootTarget(restFootLocal, currentTime, leg.phaseOffset, gaitParams);
-
-            std::vector<glm::vec3> chain = {
-                animatedSkeleton.joints[leg.hip],
-                currentSkeleton.joints[leg.knee], // rest-pose knee as the bend-direction hint
-                currentSkeleton.joints[leg.foot],
-            };
-            SolveFABRIK(chain, footTarget);
-            animatedSkeleton.joints[leg.knee] = chain[1];
-            animatedSkeleton.joints[leg.foot] = chain[2];
-        }
-
-        uploadSkeleton(animatedSkeleton);
-        uploadMesh(animatedSkeleton, currentDNA, animState.breathScale);
-
-        // The creature loops around the fixed camera target so it stays in
-        // frame — walking off in a straight line would leave the fixed-angle
-        // view almost immediately.
-        float bodyAngle = currentTime * kWalkAngularSpeed;
-        glm::vec3 bodyPos(kWalkRadius * cosf(bodyAngle), 0.0f, kWalkRadius * sinf(bodyAngle));
-        float bodyYaw = bodyAngle + glm::half_pi<float>();
-        glm::mat4 bodyTransform = glm::translate(glm::mat4(1.0f), bodyPos) *
-                                   glm::rotate(glm::mat4(1.0f), bodyYaw, glm::vec3(0.0f, 1.0f, 0.0f));
-
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
-
         int wantedLowResWidth = std::max(1, width / pixelScale);
         int wantedLowResHeight = std::max(1, height / pixelScale);
         if (wantedLowResWidth != lowResWidth || wantedLowResHeight != lowResHeight) {
             recreateLowResTarget(wantedLowResWidth, wantedLowResHeight);
         }
-
         float aspect = lowResHeight > 0 ? static_cast<float>(lowResWidth) / static_cast<float>(lowResHeight) : 1.0f;
+
+        // Steer toward wherever the mouse points on the ground: unproject the
+        // cursor into a world-space ray and intersect it with the y=0 plane
+        // (close enough given how small the terrain's bumps are).
+        int windowWidth, windowHeight;
+        glfwGetWindowSize(window, &windowWidth, &windowHeight);
+        double mouseX, mouseY;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+        float ndcX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(windowWidth)) - 1.0f;
+        float ndcY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(windowHeight));
+
+        glm::mat4 invViewProj = glm::inverse(camera.GetProjectionMatrix(aspect) * camera.GetViewMatrix());
+        glm::vec4 nearP = invViewProj * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farP = invViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+        nearP /= nearP.w;
+        farP /= farP.w;
+        glm::vec3 rayOrigin(nearP);
+        glm::vec3 rayDir = glm::normalize(glm::vec3(farP) - glm::vec3(nearP));
+
+        glm::vec3 mouseGroundTarget = bodyPos;
+        if (fabsf(rayDir.y) > 1e-5f) {
+            float t = -rayOrigin.y / rayDir.y;
+            if (t > 0.0f) mouseGroundTarget = rayOrigin + rayDir * t;
+        }
+        float clampLimit = kTerrainHalfSize - kWallMargin;
+        mouseGroundTarget.x = glm::clamp(mouseGroundTarget.x, -clampLimit, clampLimit);
+        mouseGroundTarget.z = glm::clamp(mouseGroundTarget.z, -clampLimit, clampLimit);
+
+        glm::vec3 toTarget = mouseGroundTarget - bodyPos;
+        toTarget.y = 0.0f;
+        float distToTarget = glm::length(toTarget);
+        if (distToTarget > kStopDistance) {
+            glm::vec3 moveDir = toTarget / distToTarget;
+            bodyPos += moveDir * std::min(kWalkSpeed * dt, distToTarget);
+            bodyYaw = atan2f(moveDir.x, moveDir.z); // local forward is (0,0,1)
+            gaitTime += dt;
+        }
+        bodyPos.x = glm::clamp(bodyPos.x, -clampLimit, clampLimit);
+        bodyPos.z = glm::clamp(bodyPos.z, -clampLimit, clampLimit);
+
+        glm::mat4 yawOnly = glm::rotate(glm::mat4(1.0f), bodyYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 bodyTransformFlat = glm::translate(glm::mat4(1.0f), bodyPos) * yawOnly;
+
+        // Per-leg raycast: for a heightfield, a vertical ray hit is just the
+        // height function sampled at that (x, z) — see Terrain.h.
+        glm::vec3 worldFootXZ[4];
+        float swingLift[4];
+        float groundHeight[4];
+        for (int i = 0; i < 4; ++i) {
+            glm::vec3 restFootLocal = currentSkeleton.joints[legs[i].foot];
+            glm::vec3 localGait = ComputeFootTarget(restFootLocal, gaitTime, legs[i].phaseOffset, gaitParams);
+            swingLift[i] = localGait.y;
+
+            glm::vec4 worldXZ4 = bodyTransformFlat * glm::vec4(localGait.x, 0.0f, localGait.z, 1.0f);
+            worldFootXZ[i] = glm::vec3(worldXZ4.x, 0.0f, worldXZ4.z);
+            groundHeight[i] = TerrainHeight(worldXZ4.x, worldXZ4.z);
+        }
+
+        // Pelvis/spine adjustment: fit the body's height and pitch/roll to the
+        // four raycast points instead of only the per-leg IK reaching down —
+        // this is what keeps the creature from looking like it's standing on
+        // a flat plane on top of a slope.
+        float avgGroundHeight = (groundHeight[0] + groundHeight[1] + groundHeight[2] + groundHeight[3]) * 0.25f;
+        float frontAvg = (groundHeight[0] + groundHeight[1]) * 0.5f; // FrontLeft, FrontRight
+        float backAvg = (groundHeight[2] + groundHeight[3]) * 0.5f;  // BackLeft, BackRight
+        float rightAvg = (groundHeight[1] + groundHeight[3]) * 0.5f; // FrontRight, BackRight
+        float leftAvg = (groundHeight[0] + groundHeight[2]) * 0.5f;  // FrontLeft, BackLeft
+
+        glm::vec3 frontHipMid = (currentSkeleton.joints[FrontLeftHip] + currentSkeleton.joints[FrontRightHip]) * 0.5f;
+        glm::vec3 backHipMid = (currentSkeleton.joints[BackLeftHip] + currentSkeleton.joints[BackRightHip]) * 0.5f;
+        glm::vec3 rightHipMid = (currentSkeleton.joints[FrontRightHip] + currentSkeleton.joints[BackRightHip]) * 0.5f;
+        glm::vec3 leftHipMid = (currentSkeleton.joints[FrontLeftHip] + currentSkeleton.joints[BackLeftHip]) * 0.5f;
+        float bodyLengthApprox = glm::max(0.1f, glm::length(frontHipMid - backHipMid));
+        float bodyWidthApprox = glm::max(0.1f, glm::length(rightHipMid - leftHipMid));
+
+        constexpr float kMaxTilt = 0.4f; // radians, clamps extreme slopes
+        float pitch = glm::clamp(atan2f(backAvg - frontAvg, bodyLengthApprox), -kMaxTilt, kMaxTilt);
+        float roll = glm::clamp(atan2f(rightAvg - leftAvg, bodyWidthApprox), -kMaxTilt, kMaxTilt);
+
+        glm::mat4 bodyTransform = glm::translate(glm::mat4(1.0f), glm::vec3(bodyPos.x, avgGroundHeight, bodyPos.z)) *
+                                  yawOnly *
+                                  glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f)) *
+                                  glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::mat4 invBodyTransform = glm::inverse(bodyTransform);
+
+        // Now solve each leg's IK against its own ground point (X/Z from the
+        // flat transform's sample, Y from the terrain height + swing arc),
+        // converted into the tilted body's local space. Analytic 2-bone IK,
+        // not FABRIK: with an exact 2-segment chain, FABRIK has no explicit
+        // bend-direction constraint and can flip the knee the wrong way as
+        // the target moves; the analytic solver always bends toward the
+        // local-forward pole direction by construction.
+        for (int i = 0; i < 4; ++i) {
+            glm::vec3 worldTarget(worldFootXZ[i].x, groundHeight[i] + swingLift[i], worldFootXZ[i].z);
+            glm::vec4 localTarget4 = invBodyTransform * glm::vec4(worldTarget, 1.0f);
+
+            glm::vec3 hipLocal = animatedSkeleton.joints[legs[i].hip];
+            float upperLength = glm::length(currentSkeleton.joints[legs[i].knee] - currentSkeleton.joints[legs[i].hip]);
+            float lowerLength = glm::length(currentSkeleton.joints[legs[i].foot] - currentSkeleton.joints[legs[i].knee]);
+
+            glm::vec3 solvedFoot;
+            glm::vec3 solvedKnee = SolveTwoBoneIK(hipLocal, glm::vec3(localTarget4), upperLength, lowerLength,
+                                                   glm::vec3(0.0f, 0.0f, 1.0f), solvedFoot);
+            animatedSkeleton.joints[legs[i].knee] = solvedKnee;
+            animatedSkeleton.joints[legs[i].foot] = solvedFoot;
+        }
+
+        uploadSkeleton(animatedSkeleton);
+        uploadMesh(animatedSkeleton, currentDNA, animState.breathScale);
 
         // Pass 1: render the 3D scene at low resolution.
         glBindFramebuffer(GL_FRAMEBUFFER, lowResFbo);
@@ -368,8 +466,12 @@ int main() {
 
         meshShader.SetMat4("uModel", glm::mat4(1.0f));
         meshShader.SetVec3("uColor", glm::vec3(0.35f, 0.4f, 0.3f));
-        glBindVertexArray(groundVao);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(terrainVao);
+        glDrawArrays(GL_TRIANGLES, 0, terrainVertexCount);
+
+        meshShader.SetVec3("uColor", glm::vec3(0.45f, 0.36f, 0.3f));
+        glBindVertexArray(wallVao);
+        glDrawArrays(GL_TRIANGLES, 0, wallVertexCount);
 
         meshShader.SetMat4("uModel", bodyTransform);
         meshShader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
@@ -417,8 +519,10 @@ int main() {
 
     glDeleteVertexArrays(1, &meshVao);
     glDeleteBuffers(1, &meshVbo);
-    glDeleteVertexArrays(1, &groundVao);
-    glDeleteBuffers(1, &groundVbo);
+    glDeleteVertexArrays(1, &terrainVao);
+    glDeleteBuffers(1, &terrainVbo);
+    glDeleteVertexArrays(1, &wallVao);
+    glDeleteBuffers(1, &wallVbo);
     glDeleteVertexArrays(1, &boneVao);
     glDeleteBuffers(1, &boneVbo);
     glDeleteVertexArrays(1, &jointVao);

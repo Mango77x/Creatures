@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 7
+**Last updated:** Phase 8
 
 ## Purpose
 
@@ -75,12 +75,20 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 
 ## Phase 7 — Leg IK + gait cycle
 
-- **Knee joints** (`src/Skeleton.h/.cpp`): each leg is now 3 bones (`Hip→Knee→Foot`) instead of a single segment — a straight-line leg gives an IK solver nothing to bend, so the knee (with a small forward bend-hint offset in the rest pose) is a prerequisite for any real IK.
-- **`SolveFABRIK`** (`src/IK.h/.cpp`): a standard FABRIK solver (backward pass pulls the end effector to the target and walks back fixing segment lengths, forward pass re-pins the root and walks forward again fixing lengths, repeated a few iterations). The hip is pinned as the chain root; the rest-pose knee position is reused each frame purely as the starting guess, which is enough to keep the bend direction stable frame to frame for a 2-segment chain.
+- **Knee joints** (`src/Skeleton.h/.cpp`): each leg is now 3 bones (`Hip→Knee→Foot`) instead of a single segment — a straight-line leg gives an IK solver nothing to bend, so the knee is a prerequisite for any real IK.
+- **`SolveFABRIK`** (`src/IK.h/.cpp`): a standard FABRIK solver, introduced here for legs. **Superseded for legs in Phase 8** by an analytic 2-bone solver — see below — after it turned out to flip the knee the wrong way sometimes; `SolveFABRIK` itself is still in the codebase for any future chain with more than 2 segments (e.g. neck/tail IK).
 - **`ComputeFootTarget`** (`src/Gait.h/.cpp`): stateless procedural gait — during "stance" the foot's body-local position drifts backward at the same rate the body walks forward (so it stays roughly planted in world space without tracking a touch-down point), and during "swing" it arcs forward and up (`sin` lift) to the next stance position. `GaitParams` (speed/stride/lift) are live ImGui sliders.
 - **Gait pattern**: diagonal trot — front-left + back-right share phase 0.0, front-right + back-left share phase 0.5 — expressed as a small `LegDescriptor` array in `main.cpp` rather than hardcoded per-leg logic, so it isn't tied to exactly 4 legs even though the skeleton is fixed-quadruped for now.
 - **Body movement**: the creature loops on a small circle around the fixed camera target (`bodyTransform` = translate + yaw-toward-tangent, computed from `time`) — a straight walk path would leave the Phase 5 fixed-angle view almost immediately. All leg-IK/gait math happens in the skeleton's own local space; `bodyTransform` only affects the render-time `uModel`, so the solver never needs to know the body is moving.
-- **Ground plane**: a simple static quad at `y = 0`, drawn with the same lit `basic` shader but its own muted color and an identity model matrix (it doesn't move with the body).
+- **Ground plane**: a simple static quad at `y = 0`, drawn with the same lit `basic` shader but its own muted color and an identity model matrix (it doesn't move with the body). **Replaced by a real heightfield in Phase 8** — see below.
+
+## Phase 8 — Terrain adaptation
+
+- **`TerrainHeight`/`BuildTerrainMesh`** (`src/Terrain.h/.cpp`): a handful of overlapping sine waves (deterministic, no noise library) instead of the Phase 7 flat quad. Because it's an analytic heightfield, per-leg "raycasting" collapses to a direct `TerrainHeight(x, z)` sample — a vertical ray hit and evaluating the height function at that point are the same thing for a heightfield; true ray/mesh intersection only earns its cost once terrain can overhang itself, which this can't. One term is a deliberately *diagonal* wave (wavelength close to the creature's stance width) — a plain front/back + left/right slope is something a single body-tilt plane can fully explain, but a diagonal wave isn't, which is what actually exercises independent per-leg adjustment (see below).
+- **Pelvis/spine adjustment**: each frame, all four feet's ground heights are sampled, then averaged into a body pitch (front vs. back) and roll (left vs. right), clamped to `kMaxTilt`. This becomes part of `bodyTransform` (translate at the average height, yaw, then pitch, then roll). Whatever the fitted plane *doesn't* explain (e.g. two diagonally-opposite feet on different local bumps, which cancel out in a front/back+left/right average) is left as a residual that each leg's own IK has to resolve independently — confirmed by testing against a deliberately diagonal terrain feature.
+- **Leg IK switched to analytic 2-bone** (`SolveTwoBoneIK` in `src/IK.h/.cpp`): law-of-cosines solve for an exact hip→knee→foot chain, always bending toward a fixed `poleDir` (local forward). Replaces the Phase 7 FABRIK-per-leg call after FABRIK — having no explicit bend-direction constraint on a 2-segment chain — was observed flipping the knee the wrong way as the target moved. `SolveFABRIK` remains for chains with more than 2 segments; it was simply the wrong tool for this specific case.
+- **Rest-pose standing crouch** (`BuildLeg` helper + `kStandCrouchFactor` in `Skeleton.cpp`): the rest pose's knee is now built with the *same* `SolveTwoBoneIK` call the runtime uses, with each leg's total reach (upper + lower segment) set to standing-height ÷ 0.82 rather than ≈ standing-height. That slack is what gives the leg a permanent, natural knee bend even standing still on flat ground — real legged animals never fully straighten their legs; the earlier version had almost no slack and looked stiff/penguin-like.
+- **Movement**: replaced the Phase 7 fixed circular walk path with mouse-follow steering — the cursor is unprojected into a world-space ray, intersected with the `y = 0` plane, clamped inside the terrain bounds, and the body seeks toward that point at a constant speed (`kWalkSpeed`), only rotating/advancing the gait clock while actually moving (so legs don't march in place when idle). Four inward-facing wall quads (`BuildBoundaryWalls`) mark the terrain edge and pair with a position clamp so steering can't walk the creature off the world.
 
 ## Build & toolchain
 
