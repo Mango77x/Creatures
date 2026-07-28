@@ -48,6 +48,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 - **Esqueleto inicial**: jerarquía fija tipo cuadrúpedo (Pelvis → Spine → Neck → Head / Tail; 4 patas). No generalizar a grafo arbitrario ni a otros planes corporales hasta que el cuadrúpedo funcione de punta a punta.
 - **Renderizado**: geometría simple por hueso (cápsulas/cilindros/esferas) + reducción deliberada de detalle + shader pixel-art. Nada de PBR ni sombras dinámicas complejas.
 - **Cámara final fija, no orbital libre** (decisión 28/07/2026): el visor final debe presentar la criatura desde un ángulo oblicuo/dimétrico fijo, igual que Critter Crosser (ver "Referencia visual"), no con órbita libre controlada por el usuario. La cámara orbital de la Fase 1 se mantiene como herramienta de desarrollo/depuración mientras se construyen esqueleto (Fase 3) y malla (Fase 4) — es útil para inspeccionar la criatura desde cualquier ángulo mientras se generan. Se bloquea al ángulo fijo definitivo en la Fase 5, junto con el shader pixel-art, como parte de fijar la presentación visual final.
+- **Cámara ortográfica (proyección paralela), no perspectiva, y sin zoom** (revisión 28/07/2026, Fase 9): confirmado contra las capturas de referencia (aceras/edificios de `screenshot_07` no convergen a ningún punto de fuga por lejos que estén) que Critter Crosser usa proyección paralela, no perspectiva de cámara real. `Camera::GetProjectionMatrix` usa `glm::ortho`, dimensionado una vez (`Camera::FitToGround`) para que el mapa entero quepa siempre en pantalla — no hay control de zoom del usuario.
+- **Terreno en terrazas de bloques, no heightfield suave** (revisión 28/07/2026, Fase 9): sustituye el heightfield continuo de la Fase 8 por un terreno escalonado (`Terrain.cpp`, `kTerraceStep`) con techos planos por celda y paredes verticales entre celdas de distinta altura — visualmente más parecido a los muros de piedra en terrazas de la referencia. `TerrainHeight` sigue teniendo la misma firma (altura en un punto x,z), así que el raycast por pata de la Fase 8 no cambia, solo el terreno que muestrea.
+- **Escala global de la criatura** (`kCreatureScale` en `Skeleton.h`, Fase 9): tras notar que la criatura ocupaba varios bloques de terreno en vez de ~1 como en la referencia, se introdujo un único factor de escala aplicado al esqueleto (posiciones de joints) y a los radios de malla, en vez de retocar cada rango de ADN por separado — mantiene toda la variación/proporciones relativas intactas, solo cambia el tamaño global. Velocidad de marcha, zancada y desplazamientos de animación idle se escalan con la misma constante para seguir siendo proporcionales.
 
 ## Stack técnico
 
@@ -83,8 +86,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 6. Animación procedural: respiración, cadena follow-the-leader para cuello/cola, mirada de cabeza hacia un objetivo.
 7. Inverse Kinematics de patas (FABRIK o CCD) + ciclo de marcha (paso/trote) independiente del número de patas.
 8. Adaptación a terreno: raycast por pata + ajuste de pelvis/columna/cuello.
-9. Cruce genético: mezcla de dos ADN (interpolación de parámetros + herencia de rasgos discretos) + mutación aleatoria.
-10. Exportación (glTF/OBJ) + guardado/carga de ADN + historial genealógico (opcional).
+9. Variedad visual: color por ADN, geometría real de cuernos/orejas/ojos, rango de proporciones más amplio, cámara ortográfica fija + terreno en bloques. Fase abierta a propósito — no se avanza a cruce genético hasta que las criaturas se vean bien por sí solas (decisión explícita del usuario, 28/07/2026).
+10. Cruce genético: mezcla de dos ADN (interpolación de parámetros + herencia de rasgos discretos) + mutación aleatoria. **Bloqueada hasta cerrar la Fase 9.**
+11. Exportación (glTF/OBJ) + guardado/carga de ADN + historial genealógico (opcional).
 
 ## Fase actual
 
@@ -104,7 +108,15 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 8 — completada.** Terreno con relieve real (heightfield analítico, "raycast" = muestreo directo de altura), inclinación de pelvis/columna ajustada a los 4 puntos de apoyo, y IK de pata cambiado de FABRIK genérico a un solver analítico de 2 huesos (`SolveTwoBoneIK`) tras descubrir que FABRIK podía doblar la rodilla al lado incorrecto en una cadena de solo 2 segmentos. La pose de reposo de las patas ahora tiene flexión de rodilla natural permanente (más alcance total que la altura de pie, `kStandCrouchFactor`), evitando el aspecto rígido tipo pingüino. Se sustituyó el camino circular fijo por seguimiento del ratón (proyectado al suelo) con paredes de límite en los bordes del terreno. Verificado en varias iteraciones con el usuario, incluyendo un terreno diagonal a propósito para confirmar que cada pata se ajusta de forma independiente más allá de la inclinación global del cuerpo.
 
-**Fase 9 — sin empezar.** Objetivo inmediato: cruce genético (interpolación de dos ADN + herencia de rasgos discretos + mutación). Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 9 — en curso, abierta a propósito.** Objetivo: variedad visual, no cruce genético (ese pasó a Fase 10 y está bloqueado hasta cerrar esta). Hecho hasta ahora:
+- Paleta por ADN (`Palette.h/.cpp`, HSV): color base + acento (cuernos/orejas) + color de ojos, todo derivado de `bodyHue`/`accentHueShift`/`colorSaturation`/`colorValue`, transportado por vértice (`MeshVertex::color`) y combinado con `uColor` en el shader.
+- Cuernos/orejas como mini cadenas de hueso reutilizando el pipeline de cilindros de las patas (no mallas nuevas); ojos como esferas de color contrastante. Corregido un bug donde ojos/orejas quedaban enterrados dentro de la esfera de la cabeza por usar un offset menor que su propio radio.
+- Rango de proporciones de ADN ampliado (antes todas las seeds daban siluetas parecidas).
+- Cámara pasada de perspectiva a ortográfica fija, sin zoom, encuadrando el mapa completo (`Camera::FitToGround`).
+- Terreno rehecho como terrazas de bloques en vez de heightfield suave (`Terrain.cpp`).
+- `kCreatureScale` para que la criatura ocupe ~1 bloque de terreno, como en la referencia, en vez de varios.
+
+Pendiente (siguiente iteración): secciones del cuerpo elípticas en vez de cilindros de revolución circular (la razón #1 de por qué sigue leyéndose genérica), paleta a 3 tonos. Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 

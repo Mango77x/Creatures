@@ -18,6 +18,14 @@ struct DNA {
     float bodyFat = 0.5f;
     float muscle = 0.5f;
     float aggressiveness = 0.5f;
+
+    // Color (see Palette.h): bodyHue/accentHueShift pick the two hues, the
+    // saturation/value pair sets how rich vs. how light the whole palette
+    // reads — so two creatures with the same hue can still look distinct.
+    float bodyHue = 0.0f;
+    float accentHueShift = 0.3f;
+    float colorSaturation = 0.6f;
+    float colorValue = 0.7f;
 };
 
 // Same seed always produces the same DNA; a different seed produces different DNA.

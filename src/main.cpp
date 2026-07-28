@@ -29,12 +29,9 @@
 #include "Terrain.h"
 
 namespace {
-    Camera* g_Camera = nullptr;
-
-    void ScrollCallback(GLFWwindow* /*window*/, double /*xOffset*/, double yOffset) {
-        if (ImGui::GetIO().WantCaptureMouse) return;
-        if (g_Camera) g_Camera->ProcessScroll(static_cast<float>(yOffset));
-    }
+    // World is sized here (not inside main()) so it's available before the
+    // Camera is constructed and fitted to it.
+    constexpr float kTerrainHalfSize = 6.0f;
 
     std::vector<float> FlattenBoneEndpoints(const Skeleton& skeleton) {
         std::vector<float> data;
@@ -85,9 +82,10 @@ int main() {
     glEnable(GL_DEPTH_TEST);
 
     Camera camera;
-    g_Camera = &camera;
-
-    glfwSetScrollCallback(window, ScrollCallback);
+    // No user zoom (see Camera.h) — size the fixed ortho view once so the
+    // whole map is always visible. extraHeight comfortably covers the
+    // boundary walls (yTop below) and the creature's head/neck reach.
+    camera.FitToGround(kTerrainHalfSize, 1.3f);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -172,13 +170,16 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, normal));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, color));
+    glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 
-    // Uneven terrain, world-fixed (never moves with the creature's body
-    // transform) — a heightfield built from TerrainHeight, so per-leg
+    // Blocky, world-fixed terrain (never moves with the creature's body
+    // transform) — a stepped heightfield built from TerrainHeight, so per-leg
     // "raycasting" is a direct height sample rather than ray/mesh intersection.
-    constexpr float kTerrainHalfSize = 6.0f;
-    std::vector<MeshVertex> terrainData = BuildTerrainMesh(kTerrainHalfSize, 40);
+    // Coarse resolution on purpose, sized against kCreatureScale so a cell is
+    // roughly the size of a creature (see CLAUDE.md) — not a fine grid.
+    std::vector<MeshVertex> terrainData = BuildTerrainMesh(kTerrainHalfSize, 8);
     int terrainVertexCount = static_cast<int>(terrainData.size());
     GLuint terrainVao, terrainVbo;
     glGenVertexArrays(1, &terrainVao);
@@ -190,6 +191,8 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, normal));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, color));
+    glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 
     // Boundary walls, marking (and enforcing, via a position clamp below) the
@@ -206,6 +209,8 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, normal));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, color));
+    glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 
     GLuint boneVao, boneVbo, jointVao, jointVbo;
@@ -276,7 +281,7 @@ int main() {
     glm::vec3 bodyPos(0.0f, 0.0f, 0.0f);
     float bodyYaw = 0.0f;
     float gaitTime = 0.0f; // only advances while actually moving, so legs don't march in place when idle
-    constexpr float kWalkSpeed = 0.9f;         // units/sec
+    constexpr float kWalkSpeed = 0.9f * kCreatureScale; // units/sec, scaled with the creature (Skeleton.h)
     constexpr float kWallMargin = 0.6f;
     constexpr float kStopDistance = 0.05f;
 
@@ -327,6 +332,10 @@ int main() {
         ImGui::Text("bodyFat: %.3f", currentDNA.bodyFat);
         ImGui::Text("muscle: %.3f", currentDNA.muscle);
         ImGui::Text("aggressiveness: %.3f", currentDNA.aggressiveness);
+        ImGui::Text("bodyHue: %.3f", currentDNA.bodyHue);
+        ImGui::Text("accentHueShift: %.3f", currentDNA.accentHueShift);
+        ImGui::Text("colorSaturation: %.3f", currentDNA.colorSaturation);
+        ImGui::Text("colorValue: %.3f", currentDNA.colorValue);
         ImGui::End();
 
         float currentTime = static_cast<float>(glfwGetTime());
@@ -465,7 +474,10 @@ int main() {
         meshShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
 
         meshShader.SetMat4("uModel", glm::mat4(1.0f));
-        meshShader.SetVec3("uColor", glm::vec3(0.35f, 0.4f, 0.3f));
+        // Terrain's top/riser colors are baked per-vertex now (Terrain.cpp),
+        // matching the same uColor*vColor scheme creatures use — white
+        // leaves them unmodified.
+        meshShader.SetVec3("uColor", glm::vec3(1.0f, 1.0f, 1.0f));
         glBindVertexArray(terrainVao);
         glDrawArrays(GL_TRIANGLES, 0, terrainVertexCount);
 
@@ -474,7 +486,10 @@ int main() {
         glDrawArrays(GL_TRIANGLES, 0, wallVertexCount);
 
         meshShader.SetMat4("uModel", bodyTransform);
-        meshShader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
+        // The creature's real color now lives per-vertex (Phase 9's DNA
+        // palette, see CreatureMesh.cpp's BoneColor) — uColor just tints,
+        // so pass white to leave it unmodified.
+        meshShader.SetVec3("uColor", glm::vec3(1.0f, 1.0f, 1.0f));
         glBindVertexArray(meshVao);
         glDrawArrays(GL_TRIANGLES, 0, meshVertexCount);
 

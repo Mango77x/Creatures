@@ -72,7 +72,23 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 - Gave the rest pose real standing crouch (leg segments reach further than the standing height, `kStandCrouchFactor` in `Skeleton.cpp`) after noticing legs looked penguin-stiff on flat ground — real legged animals never fully straighten their legs.
 - Added mouse-follow steering (unprojected cursor → ground plane) and boundary walls, replacing the fixed circular walk path, to make terrain adaptation actually testable across the whole terrain instead of one small loop.
 
-## Phase 9 — Crossbreeding
+## Phase 9 — Visual variety (in progress, open-ended)
+
+Every seed was reading as visually similar ("the same ugly giraffe") regardless of DNA. Crossbreeding two creatures that look the same has no demonstrative point, so this phase stays open — no fixed close date — until creatures look good on their own; Phase 10 (crossbreeding) is explicitly blocked until then (user decision, 2026-07-28).
+
+- [x] Per-DNA color palette (`Palette.h/.cpp`): body + accent (horn/ear) + eye color from HSV, carried per-vertex (`MeshVertex::color`) and combined with the `uColor` uniform
+- [x] Real horn/ear geometry — small bone chains reusing the leg/cylinder pipeline, not new mesh primitives
+- [x] Real eye geometry — small contrasting spheres
+- [x] Wider DNA proportion ranges (bodyLength/Height/neck/tail) so seeds read as distinct silhouettes, not just detail variation
+- [x] Camera switched perspective → orthographic, fixed, sized to always show the whole map, no user zoom (`Camera::FitToGround`) — confirmed against reference screenshots showing zero perspective convergence
+- [x] Terrain reworked from a smooth heightfield to stepped block terraces (`Terrain.cpp`)
+- [x] `kCreatureScale` (`Skeleton.h`) — creature was several terrain blocks long vs. the reference's ~1 block; single global scale constant applied to skeleton + mesh radii, animation/gait constants scaled to match
+- [ ] Elliptical (non-circular) bone cross-sections — current cylinders-of-revolution are the main reason the creature still reads as "capsules glued together" rather than an animal body
+- [ ] 3-tone palette (body/belly/accent) instead of 2
+
+**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped creatures at roughly the right scale relative to a blocky, fully-framed map. Not yet closed — see the two open items above.
+
+## Phase 10 — Crossbreeding (blocked until Phase 9 closes)
 
 - [ ] Pick two creatures (DNA sets)
 - [ ] Parameter interpolation + discrete trait inheritance + mutation
@@ -80,7 +96,7 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** crossing two visually distinct creatures produces a third with blended traits.
 
-## Phase 10 — Export & persistence
+## Phase 11 — Export & persistence
 
 - [ ] Export to glTF/OBJ
 - [ ] Save/load DNA to disk

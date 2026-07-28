@@ -3,12 +3,16 @@
 namespace {
     constexpr float kNeckFollowSpeed = 8.0f;  // higher = catches up faster = shorter delay
     constexpr float kTailFollowSpeed = 5.0f;
-    constexpr float kBobAmount = 0.05f;
+    // kBobAmount/kMaxHeadLean are absolute world-unit offsets tuned for the
+    // pre-kCreatureScale skeleton size — scaled down to match so they stay
+    // proportional instead of becoming relatively oversized on the smaller
+    // creature (see Skeleton.h's kCreatureScale).
+    constexpr float kBobAmount = 0.05f * kCreatureScale;
     constexpr float kBobSpeed = 1.6f;
-    constexpr float kMaxHeadLean = 0.35f;     // world units the head may lean toward the target
+    constexpr float kMaxHeadLean = 0.35f * kCreatureScale; // world units the head may lean toward the target
     constexpr float kLookAtSpeed = 4.0f;
     constexpr float kBreathSpeed = 1.2f;
-    constexpr float kBreathAmount = 0.06f;
+    constexpr float kBreathAmount = 0.06f; // a fractional radius multiplier, not a length — scale-invariant
 
     // Exponential smoothing: closes the gap to `target` at a rate independent
     // of frame rate, which is exactly "follows with a small delay" rather than
@@ -69,6 +73,18 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     animated.joints[HeadTip] = state.headTip;
     animated.joints[TailMid] = state.tailMid;
     animated.joints[TailTip] = state.tailTip;
+
+    // Horns/ears/eyes (Phase 9) have no lag/follow of their own — they're
+    // rigidly attached to the head, so they just ride along with however far
+    // the look-at lean moved HeadTip from its rest position. A translation
+    // delta rather than a full rotation is the same "just enough, not a real
+    // rig" simplification the rest of this file already uses.
+    glm::vec3 headDelta = state.headTip - restHeadTip;
+    animated.joints[HornTip] = rest.joints[HornTip] + headDelta;
+    animated.joints[LeftEarTip] = rest.joints[LeftEarTip] + headDelta;
+    animated.joints[RightEarTip] = rest.joints[RightEarTip] + headDelta;
+    animated.joints[LeftEye] = rest.joints[LeftEye] + headDelta;
+    animated.joints[RightEye] = rest.joints[RightEye] + headDelta;
 
     state.breathScale = sinf(time * kBreathSpeed) * kBreathAmount;
 

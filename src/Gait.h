@@ -2,11 +2,17 @@
 
 #include <glm/glm.hpp>
 
+#include "Skeleton.h" // kCreatureScale
+
 struct GaitParams {
     float speed = 1.0f;          // gait cycles per second
-    float strideLength = 0.5f;   // world units the foot travels during stance
-    float liftHeight = 0.18f;    // swing arc height
-    float stanceFraction = 0.6f; // fraction of the cycle spent planted
+    // strideLength/liftHeight are absolute world-unit distances, tuned for
+    // the pre-kCreatureScale skeleton size — scaled down to match (see
+    // Skeleton.h's kCreatureScale) so a step still looks like a fraction of
+    // a leg length rather than becoming relatively oversized.
+    float strideLength = 0.5f * kCreatureScale;  // world units the foot travels during stance
+    float liftHeight = 0.18f * kCreatureScale;   // swing arc height
+    float stanceFraction = 0.6f;                 // fraction of the cycle spent planted
 };
 
 // Body-local target position for a leg's foot at a given time, given its

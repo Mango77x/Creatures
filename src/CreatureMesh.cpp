@@ -1,4 +1,5 @@
 #include "CreatureMesh.h"
+#include "Palette.h"
 
 #include <glm/gtc/constants.hpp>
 #include <algorithm>
@@ -17,14 +18,14 @@ namespace {
     }
 
     void AppendTriangle(std::vector<MeshVertex>& out, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c,
-                         const glm::vec3& na, const glm::vec3& nb, const glm::vec3& nc) {
-        out.push_back({a, na});
-        out.push_back({b, nb});
-        out.push_back({c, nc});
+                         const glm::vec3& na, const glm::vec3& nb, const glm::vec3& nc, const glm::vec3& color) {
+        out.push_back({a, na, color});
+        out.push_back({b, nb, color});
+        out.push_back({c, nc, color});
     }
 
     void AppendCylinder(std::vector<MeshVertex>& out, const glm::vec3& start, const glm::vec3& end,
-                         float startRadius, float endRadius) {
+                         float startRadius, float endRadius, const glm::vec3& color) {
         glm::vec3 axis = end - start;
         float length = glm::length(axis);
         if (length < 1e-5f) return;
@@ -45,12 +46,12 @@ namespace {
             glm::vec3 endA = end + dir0 * endRadius;
             glm::vec3 endB = end + dir1 * endRadius;
 
-            AppendTriangle(out, startA, endA, endB, dir0, dir0, dir1);
-            AppendTriangle(out, startA, endB, startB, dir0, dir1, dir1);
+            AppendTriangle(out, startA, endA, endB, dir0, dir0, dir1, color);
+            AppendTriangle(out, startA, endB, startB, dir0, dir1, dir1, color);
         }
     }
 
-    void AppendSphere(std::vector<MeshVertex>& out, const glm::vec3& center, float radius) {
+    void AppendSphere(std::vector<MeshVertex>& out, const glm::vec3& center, float radius, const glm::vec3& color) {
         if (radius < 1e-5f) return;
 
         for (int stack = 0; stack < kSphereStacks; ++stack) {
@@ -75,8 +76,8 @@ namespace {
                 glm::vec3 p10 = center + n10 * radius;
                 glm::vec3 p11 = center + n11 * radius;
 
-                AppendTriangle(out, p00, p10, p11, n00, n10, n11);
-                AppendTriangle(out, p00, p11, p01, n00, n11, n01);
+                AppendTriangle(out, p00, p10, p11, n00, n10, n11, color);
+                AppendTriangle(out, p00, p11, p01, n00, n11, n01, color);
             }
         }
     }
@@ -88,8 +89,23 @@ namespace {
             case BoneKind::Head:  return 0.16f + dna.eyeSize * 0.2f;
             case BoneKind::Tail:  return 0.08f + dna.muscle * 0.04f;
             case BoneKind::Leg:   return 0.09f + dna.muscle * 0.06f;
+            case BoneKind::Horn:  return 0.05f + dna.hornSize * 0.06f;
+            case BoneKind::Ear:   return 0.04f + dna.earSize * 0.05f;
         }
         return 0.1f;
+    }
+
+    // Body vs. accent material per bone (Phase 9's per-DNA palette, see
+    // Palette.h): horns/ears read as a different "material" (like keratin
+    // vs. skin), everything else is the base body color.
+    glm::vec3 BoneColor(BoneKind kind, const DNA& dna) {
+        switch (kind) {
+            case BoneKind::Horn:
+            case BoneKind::Ear:
+                return AccentColor(dna);
+            default:
+                return BodyColor(dna);
+        }
     }
 }
 
@@ -99,26 +115,50 @@ std::vector<MeshVertex> BuildCreatureMesh(const Skeleton& skeleton, const DNA& d
     auto effectiveRadius = [&](const Bone& bone, float radiusScale) {
         float radius = BoneRadius(bone.kind, dna) * radiusScale;
         if (bone.kind == BoneKind::Spine) radius *= (1.0f + breathScale);
-        return radius;
+        // kCreatureScale shrinks skeleton joint positions (Skeleton.cpp) but
+        // BoneRadius's constants are unscaled — apply the same factor here
+        // so thickness shrinks in lockstep with length instead of the
+        // creature ending up relatively fatter than before.
+        return radius * kCreatureScale;
     };
 
+    // Each joint's cap sphere is sized (and colored) to whichever connected
+    // bone is thickest there — e.g. the pelvis picks up the spine's color
+    // over the thinner legs/tail, an ear tip picks up its own ear color
+    // since nothing else touches it.
     std::vector<float> jointRadius(skeleton.joints.size(), 0.0f);
+    std::vector<glm::vec3> jointColor(skeleton.joints.size(), glm::vec3(1.0f));
     for (const Bone& bone : skeleton.bones) {
         float startRadius = effectiveRadius(bone, bone.startRadiusScale);
         float endRadius = effectiveRadius(bone, bone.endRadiusScale);
-        jointRadius[bone.startJoint] = std::max(jointRadius[bone.startJoint], startRadius);
-        jointRadius[bone.endJoint] = std::max(jointRadius[bone.endJoint], endRadius);
+        glm::vec3 color = BoneColor(bone.kind, dna);
+        if (startRadius > jointRadius[bone.startJoint]) {
+            jointRadius[bone.startJoint] = startRadius;
+            jointColor[bone.startJoint] = color;
+        }
+        if (endRadius > jointRadius[bone.endJoint]) {
+            jointRadius[bone.endJoint] = endRadius;
+            jointColor[bone.endJoint] = color;
+        }
     }
 
     for (const Bone& bone : skeleton.bones) {
         float startRadius = effectiveRadius(bone, bone.startRadiusScale);
         float endRadius = effectiveRadius(bone, bone.endRadiusScale);
-        AppendCylinder(mesh, skeleton.joints[bone.startJoint], skeleton.joints[bone.endJoint], startRadius, endRadius);
+        AppendCylinder(mesh, skeleton.joints[bone.startJoint], skeleton.joints[bone.endJoint], startRadius, endRadius,
+                        BoneColor(bone.kind, dna));
     }
 
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {
-        AppendSphere(mesh, skeleton.joints[i], jointRadius[i]);
+        AppendSphere(mesh, skeleton.joints[i], jointRadius[i], jointColor[i]);
     }
+
+    // Eyes are a point, not a bone (see Skeleton.h), so they get an explicit
+    // sphere instead of going through the joint-cap loop above.
+    float eyeRadius = (0.04f + dna.eyeSize * 0.12f) * kCreatureScale;
+    glm::vec3 eyeColor = EyeColor(dna);
+    AppendSphere(mesh, skeleton.joints[LeftEye], eyeRadius, eyeColor);
+    AppendSphere(mesh, skeleton.joints[RightEye], eyeRadius, eyeColor);
 
     return mesh;
 }
