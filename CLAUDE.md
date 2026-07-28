@@ -100,7 +100,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 6 — completada.** Cadena "follow the leader" con retraso para cuello y cola (cada articulación persigue a la anterior ya retrasada, no snap directo), respiración (el radio de la columna pulsa con una onda seno), y cabeza que se inclina hacia un "look-at target" controlable en vivo desde el panel. Columna y patas se quedan fijas en su pose de reposo (el IK de patas es Fase 7). Verificado: la criatura quieta se ve viva.
 
-**Fase 7 — sin empezar.** Objetivo inmediato: IK de patas (FABRIK o CCD) + ciclo de marcha. Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 7 — completada.** Cada pata pasó a tener rodilla (Hip→Knee→Foot, 3 huesos) resuelta con un solver FABRIK real; ciclo de marcha procedural sin estado (`ComputeFootTarget`) con patrón de trote diagonal; la criatura camina en círculo alrededor del target fijo de la cámara sobre un plano de suelo visible. Todo el cálculo de IK/marcha ocurre en espacio local del esqueleto; el movimiento del cuerpo solo afecta el `uModel` de render. Sin raycast/adaptación de terreno todavía (eso es Fase 8, suelo plano por ahora). Verificado: patas dobladas de rodilla visibles, marcha tipo trote.
+
+**Fase 8 — sin empezar.** Objetivo inmediato: adaptación a terreno (raycast por pata + ajuste de pelvis/columna/cuello). Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 

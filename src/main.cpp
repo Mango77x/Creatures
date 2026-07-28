@@ -7,6 +7,8 @@
 #include <backends/imgui_impl_opengl3.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/constants.hpp>
 
 #include <iostream>
 #include <string>
@@ -21,6 +23,8 @@
 #include "Skeleton.h"
 #include "CreatureMesh.h"
 #include "Animation.h"
+#include "IK.h"
+#include "Gait.h"
 
 namespace {
     Camera* g_Camera = nullptr;
@@ -168,6 +172,28 @@ int main() {
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 
+    // Flat ground plane, world-fixed (never moves with the creature's body transform).
+    constexpr float kGroundHalfSize = 6.0f;
+    constexpr float kGroundVertices[] = {
+        -kGroundHalfSize, 0.0f, -kGroundHalfSize,  0.0f, 1.0f, 0.0f,
+         kGroundHalfSize, 0.0f, -kGroundHalfSize,  0.0f, 1.0f, 0.0f,
+         kGroundHalfSize, 0.0f,  kGroundHalfSize,  0.0f, 1.0f, 0.0f,
+         kGroundHalfSize, 0.0f,  kGroundHalfSize,  0.0f, 1.0f, 0.0f,
+        -kGroundHalfSize, 0.0f,  kGroundHalfSize,  0.0f, 1.0f, 0.0f,
+        -kGroundHalfSize, 0.0f, -kGroundHalfSize,  0.0f, 1.0f, 0.0f,
+    };
+    GLuint groundVao, groundVbo;
+    glGenVertexArrays(1, &groundVao);
+    glGenBuffers(1, &groundVbo);
+    glBindVertexArray(groundVao);
+    glBindBuffer(GL_ARRAY_BUFFER, groundVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kGroundVertices), kGroundVertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
     GLuint boneVao, boneVbo, jointVao, jointVbo;
     glGenVertexArrays(1, &boneVao);
     glGenBuffers(1, &boneVbo);
@@ -217,6 +243,23 @@ int main() {
     glm::vec3 lookAtTarget = currentSkeleton.joints[HeadTip] + glm::vec3(0.0f, 0.0f, 0.6f);
     float lastTime = static_cast<float>(glfwGetTime());
 
+    GaitParams gaitParams;
+    struct LegDescriptor {
+        SkeletonJoint hip, knee, foot;
+        float phaseOffset;
+    };
+    // Diagonal trot: front-left + back-right swing together, offset by half a
+    // cycle from front-right + back-left.
+    const LegDescriptor legs[4] = {
+        {FrontLeftHip, FrontLeftKnee, FrontLeftFoot, 0.0f},
+        {FrontRightHip, FrontRightKnee, FrontRightFoot, 0.5f},
+        {BackLeftHip, BackLeftKnee, BackLeftFoot, 0.5f},
+        {BackRightHip, BackRightKnee, BackRightFoot, 0.0f},
+    };
+
+    constexpr float kWalkRadius = 1.6f;
+    constexpr float kWalkAngularSpeed = 0.6f; // rad/s — creature loops around the fixed camera target
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -247,6 +290,11 @@ int main() {
         ImGui::TextUnformatted("Animation");
         ImGui::SliderFloat3("Look-at target", &lookAtTarget.x, -2.0f, 5.0f);
         ImGui::Separator();
+        ImGui::TextUnformatted("Gait");
+        ImGui::SliderFloat("Gait speed", &gaitParams.speed, 0.2f, 3.0f);
+        ImGui::SliderFloat("Stride length", &gaitParams.strideLength, 0.1f, 1.0f);
+        ImGui::SliderFloat("Lift height", &gaitParams.liftHeight, 0.02f, 0.4f);
+        ImGui::Separator();
         ImGui::Text("seed: %u", currentDNA.seed);
         ImGui::Text("bodyLength: %.3f", currentDNA.bodyLength);
         ImGui::Text("bodyHeight: %.3f", currentDNA.bodyHeight);
@@ -266,8 +314,35 @@ int main() {
         lastTime = currentTime;
 
         Skeleton animatedSkeleton = ApplyAnimation(animState, currentSkeleton, currentTime, dt, lookAtTarget);
+
+        // Feet targets and IK are solved in the body's own local space (same
+        // space the rest-pose skeleton lives in) — the walk path only affects
+        // uModel at render time, so the solver never needs to know about it.
+        for (const LegDescriptor& leg : legs) {
+            glm::vec3 restFootLocal = currentSkeleton.joints[leg.foot];
+            glm::vec3 footTarget = ComputeFootTarget(restFootLocal, currentTime, leg.phaseOffset, gaitParams);
+
+            std::vector<glm::vec3> chain = {
+                animatedSkeleton.joints[leg.hip],
+                currentSkeleton.joints[leg.knee], // rest-pose knee as the bend-direction hint
+                currentSkeleton.joints[leg.foot],
+            };
+            SolveFABRIK(chain, footTarget);
+            animatedSkeleton.joints[leg.knee] = chain[1];
+            animatedSkeleton.joints[leg.foot] = chain[2];
+        }
+
         uploadSkeleton(animatedSkeleton);
         uploadMesh(animatedSkeleton, currentDNA, animState.breathScale);
+
+        // The creature loops around the fixed camera target so it stays in
+        // frame — walking off in a straight line would leave the fixed-angle
+        // view almost immediately.
+        float bodyAngle = currentTime * kWalkAngularSpeed;
+        glm::vec3 bodyPos(kWalkRadius * cosf(bodyAngle), 0.0f, kWalkRadius * sinf(bodyAngle));
+        float bodyYaw = bodyAngle + glm::half_pi<float>();
+        glm::mat4 bodyTransform = glm::translate(glm::mat4(1.0f), bodyPos) *
+                                   glm::rotate(glm::mat4(1.0f), bodyYaw, glm::vec3(0.0f, 1.0f, 0.0f));
 
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
@@ -288,9 +363,15 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         meshShader.Use();
-        meshShader.SetMat4("uModel", glm::mat4(1.0f));
         meshShader.SetMat4("uView", camera.GetViewMatrix());
         meshShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
+
+        meshShader.SetMat4("uModel", glm::mat4(1.0f));
+        meshShader.SetVec3("uColor", glm::vec3(0.35f, 0.4f, 0.3f));
+        glBindVertexArray(groundVao);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        meshShader.SetMat4("uModel", bodyTransform);
         meshShader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
         glBindVertexArray(meshVao);
         glDrawArrays(GL_TRIANGLES, 0, meshVertexCount);
@@ -300,7 +381,7 @@ int main() {
             glDisable(GL_DEPTH_TEST);
 
             lineShader.Use();
-            lineShader.SetMat4("uModel", glm::mat4(1.0f));
+            lineShader.SetMat4("uModel", bodyTransform);
             lineShader.SetMat4("uView", camera.GetViewMatrix());
             lineShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
 
@@ -336,6 +417,8 @@ int main() {
 
     glDeleteVertexArrays(1, &meshVao);
     glDeleteBuffers(1, &meshVbo);
+    glDeleteVertexArrays(1, &groundVao);
+    glDeleteBuffers(1, &groundVbo);
     glDeleteVertexArrays(1, &boneVao);
     glDeleteBuffers(1, &boneVbo);
     glDeleteVertexArrays(1, &jointVao);

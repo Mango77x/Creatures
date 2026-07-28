@@ -54,12 +54,12 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** a stationary creature that reads as alive. Verified: neck/tail sway with a visible delay between segments, the spine visibly pulses, and the head leans toward the ImGui-controlled "Look-at target" point.
 
-## Phase 7 — Leg IK + gait cycle
+## Phase 7 — Leg IK + gait cycle (done)
 
-- [ ] FABRIK or CCD solver per leg
-- [ ] Walk/trot gait cycle, independent of leg count
+- [x] FABRIK or CCD solver per leg
+- [x] Walk/trot gait cycle, independent of leg count
 
-**Tangible result:** the creature walks across a flat plane.
+**Tangible result:** the creature walks across a flat plane. Verified: diagonal trot with visible knee bending, looping around the fixed camera target on a visible ground plane. No terrain raycast/adaptation yet — that's Phase 8, this phase is flat ground only.
 
 ## Phase 8 — Terrain adaptation
 
