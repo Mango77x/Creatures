@@ -73,6 +73,7 @@ add_executable(Creatures
     src/main.cpp
     src/Camera.cpp
     src/Shader.cpp
+    src/DNA.cpp
 )
 
 target_link_libraries(Creatures PRIVATE

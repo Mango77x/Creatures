@@ -16,13 +16,13 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** an executable window with a navigable 3D scene. Verified: window opens, cube renders, drag-to-orbit and scroll-to-zoom both work.
 
-## Phase 2 — DNA system
+## Phase 2 — DNA system (done)
 
-- [ ] Flat DNA struct (bodyLength, bodyHeight, neckLength, tailLength, legCount, hornSize, eyeSize, earSize, bodyFat, muscle, aggressiveness, ...)
-- [ ] Seeded, reproducible pseudo-random generation
-- [ ] ImGui panel: seed field + generate button, showing the resulting parameters
+- [x] Flat DNA struct (bodyLength, bodyHeight, neckLength, tailLength, legCount, hornSize, eyeSize, earSize, bodyFat, muscle, aggressiveness, ...)
+- [x] Seeded, reproducible pseudo-random generation
+- [x] ImGui panel: seed field + generate button, showing the resulting parameters
 
-**Tangible result:** the same seed always reproduces the same DNA values; a different seed gives different values.
+**Tangible result:** the same seed always reproduces the same DNA values; a different seed gives different values. Verified: same seed re-generates identical parameters, different seeds diverge.
 
 ## Phase 3 — Skeleton generator
 

@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 1
+**Last updated:** Phase 2
 
 ## Purpose
 
@@ -32,6 +32,12 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 - **Function loading**: OpenGL's modern functions aren't declared by the OS headers on Windows (which only ship OpenGL 1.1). GLAD generates the loader that resolves the real function pointers from the driver at runtime.
 - **Camera**: an orbital camera — no free-fly controls. It orbits a fixed target point; mouse drag changes yaw/pitch around it, scroll changes distance. Implemented with GLM's view/projection matrices.
 - **UI**: Dear ImGui is initialized against the same GLFW window/OpenGL context (via its `imgui_impl_glfw` and `imgui_impl_opengl3` backends) and renders an empty panel, ready to host the DNA lab controls starting Phase 2.
+
+## Phase 2 — DNA system
+
+- **`DNA` struct** (`src/DNA.h`): a flat set of numeric parameters — no genome language, no morphology graph. `legCount` is present but hardcoded to 4 for now, matching the fixed-quadruped-skeleton decision; it becomes meaningfully variable once body plans generalize past Phase 8.
+- **Generation** (`src/DNA.cpp`, `GenerateDNA(seed)`): seeds a `std::mt19937` with the given seed and draws each field in a fixed order via `std::uniform_real_distribution`. Same seed in → same DNA out, deterministically, because the RNG's sequence only depends on the seed and the fixed draw order.
+- **UI**: the ImGui panel exposes a seed field, a "Generate" button (regenerate from the typed seed), and a "Random seed" button (draws a seed from `std::random_device`), followed by a read-only listing of the resulting parameters.
 
 ## Build & toolchain
 
