@@ -10,9 +10,11 @@
 
 #include <iostream>
 #include <string>
+#include <random>
 
 #include "Camera.h"
 #include "Shader.h"
+#include "DNA.h"
 
 namespace {
     Camera* g_Camera = nullptr;
@@ -144,6 +146,9 @@ int main() {
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 
+    uint32_t seedInput = 1;
+    DNA currentDNA = GenerateDNA(seedInput);
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -152,8 +157,29 @@ int main() {
         ImGui::NewFrame();
 
         ImGui::Begin("Creature Lab");
-        ImGui::TextUnformatted("Phase 1: window, camera, and render loop.");
-        ImGui::TextUnformatted("DNA controls arrive in Phase 2.");
+        ImGui::TextUnformatted("DNA");
+        ImGui::InputScalar("Seed", ImGuiDataType_U32, &seedInput);
+        if (ImGui::Button("Generate")) {
+            currentDNA = GenerateDNA(seedInput);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Random seed")) {
+            seedInput = std::random_device{}();
+            currentDNA = GenerateDNA(seedInput);
+        }
+        ImGui::Separator();
+        ImGui::Text("seed: %u", currentDNA.seed);
+        ImGui::Text("bodyLength: %.3f", currentDNA.bodyLength);
+        ImGui::Text("bodyHeight: %.3f", currentDNA.bodyHeight);
+        ImGui::Text("neckLength: %.3f", currentDNA.neckLength);
+        ImGui::Text("tailLength: %.3f", currentDNA.tailLength);
+        ImGui::Text("legCount: %d", currentDNA.legCount);
+        ImGui::Text("hornSize: %.3f", currentDNA.hornSize);
+        ImGui::Text("eyeSize: %.3f", currentDNA.eyeSize);
+        ImGui::Text("earSize: %.3f", currentDNA.earSize);
+        ImGui::Text("bodyFat: %.3f", currentDNA.bodyFat);
+        ImGui::Text("muscle: %.3f", currentDNA.muscle);
+        ImGui::Text("aggressiveness: %.3f", currentDNA.aggressiveness);
         ImGui::End();
 
         int width, height;

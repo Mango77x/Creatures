@@ -87,9 +87,11 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 ## Fase actual
 
-**Fase 1 — completada y mergeada.** Ventana OpenGL + contexto, cámara orbital (arrastrar rota, scroll hace zoom), panel ImGui vacío, cubo placeholder con shading básico. Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 1 — completada y mergeada.** Ventana OpenGL + contexto, cámara orbital (arrastrar rota, scroll hace zoom), panel ImGui vacío, cubo placeholder con shading básico.
 
-**Fase 2 — sin empezar.** Objetivo inmediato: struct de ADN + seed + generación pseudoaleatoria reproducible, expuesto en el panel ImGui.
+**Fase 2 — completada.** Struct de ADN plano + generación reproducible por seed (`std::mt19937`) + panel ImGui con seed/generar/seed aleatorio y listado de parámetros. Verificado: mismo seed reproduce los mismos valores.
+
+**Fase 3 — sin empezar.** Objetivo inmediato: generador de esqueleto de cuadrúpedo (Pelvis → Spine → Neck → Head / Tail, 4 patas) a partir del ADN. Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 
