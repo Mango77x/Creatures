@@ -1,0 +1,24 @@
+# Build output
+build/
+out/
+cmake-build-*/
+
+# CMake FetchContent cache
+_deps/
+
+# Visual Studio / MSVC
+.vs/
+*.vcxproj*
+*.sln
+*.ilk
+*.pdb
+*.obj
+*.exe
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
