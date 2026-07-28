@@ -57,6 +57,41 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[TailMid] = tailMid;
     j[TailTip] = tailTip;
 
+    // Head appendages, offset from HeadTip. hornSize/earSize/eyeSize already
+    // existed in DNA but only sized the head capsule before Phase 9 — here
+    // they place actual small bone chains (horn/ears) and a point (eyes).
+    //
+    // The head's own joint-cap sphere (see CreatureMesh.cpp's BoneRadius for
+    // BoneKind::Head) has radius ~0.16-0.22 — bigger than earLength/eyeOffset
+    // were originally, so ears/eyes ended up entirely inside that sphere and
+    // never poked through (invisible regardless of DNA). headRadiusApprox
+    // mirrors that formula so appendages are placed relative to the actual
+    // head surface instead of a fixed offset that happened to be too small.
+    const float headRadiusApprox = 0.16f + dna.eyeSize * 0.2f;
+
+    // hornSize can be 0, so the horn cylinder can end up zero-length —
+    // AppendCylinder already skips those, giving hornless creatures for free
+    // instead of needing a separate "has horn" flag. Unlike ears/eyes, the
+    // horn deliberately does NOT get a head-radius clearance added: a small
+    // horn merging into the head silhouette (only clearing the surface once
+    // hornSize is large enough on its own) reads as "small horn", not a bug.
+    const glm::vec3 hornDir = glm::normalize(neckDir + up * 0.6f);
+    j[HornTip] = headTip + hornDir * (dna.hornSize * 1.1f);
+
+    const glm::vec3 earDirLeft = glm::normalize(up - right * 0.7f);
+    const glm::vec3 earDirRight = glm::normalize(up + right * 0.7f);
+    const float earReach = headRadiusApprox + 0.03f + dna.earSize * 0.35f;
+    j[LeftEarTip] = headTip + earDirLeft * earReach;
+    j[RightEarTip] = headTip + earDirRight * earReach;
+
+    // Eye center sits exactly on the head surface (distance headRadiusApprox
+    // from HeadTip) so roughly half the eye sphere pokes out — visible
+    // without floating detached off the head.
+    const glm::vec3 eyeDirLeft = glm::normalize(neckDir * 0.35f - right);
+    const glm::vec3 eyeDirRight = glm::normalize(neckDir * 0.35f + right);
+    j[LeftEye] = headTip + eyeDirLeft * headRadiusApprox;
+    j[RightEye] = headTip + eyeDirRight * headRadiusApprox;
+
     const float sideOffset = 0.3f + dna.bodyFat * 0.3f;
     const glm::vec3 frontHipBase = chestEnd - forward * 0.15f;
     const glm::vec3 backHipBase = pelvis + forward * 0.15f;
@@ -70,6 +105,9 @@ Skeleton BuildSkeleton(const DNA& dna) {
         {Pelvis, ChestEnd, BoneKind::Spine},
         {ChestEnd, NeckEnd, BoneKind::Neck},
         {NeckEnd, HeadTip, BoneKind::Head},
+        {HeadTip, HornTip, BoneKind::Horn, 1.0f, 0.05f},
+        {HeadTip, LeftEarTip, BoneKind::Ear, 1.0f, 0.6f},
+        {HeadTip, RightEarTip, BoneKind::Ear, 1.0f, 0.6f},
         {Pelvis, TailMid, BoneKind::Tail, 1.0f, 0.55f},
         {TailMid, TailTip, BoneKind::Tail, 0.55f, 0.12f},
 
@@ -89,6 +127,13 @@ Skeleton BuildSkeleton(const DNA& dna) {
         {BackRightHip, BackRightKnee, BoneKind::Leg},
         {BackRightKnee, BackRightFoot, BoneKind::Leg},
     };
+
+    // Uniform final scale (see kCreatureScale) — applied last, after every
+    // joint (including IK-solved legs) is already correctly proportioned
+    // relative to the others, so this only changes overall size, not shape.
+    for (glm::vec3& joint : skeleton.joints) {
+        joint *= kCreatureScale;
+    }
 
     return skeleton;
 }

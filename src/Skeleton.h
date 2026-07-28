@@ -5,7 +5,18 @@
 
 #include "DNA.h"
 
-enum class BoneKind { Spine, Neck, Head, Tail, Leg };
+// Uniform scale applied to the whole generated creature (skeleton positions
+// in Skeleton.cpp, mesh radii in CreatureMesh.cpp) — one shared knob instead
+// of retuning every DNA range, so relative proportions/Phase-9 tuning (color,
+// horn/ear/eye placement as fractions of head radius, etc.) all carry through
+// unchanged. Everything computed from unscaled DNA values first, then scaled
+// once at the end, keeps the two independently-scaled halves (skeleton here,
+// radii in CreatureMesh.cpp) mathematically consistent with each other.
+// Introduced when the creature's on-screen size turned out several terrain
+// blocks long instead of the reference's ~1 block (see CLAUDE.md).
+constexpr float kCreatureScale = 0.5f;
+
+enum class BoneKind { Spine, Neck, Head, Tail, Leg, Horn, Ear };
 
 // Indices into Skeleton::joints. A plain enum (not enum class) so it can be
 // used directly as an array index — animation code needs to reach specific
@@ -16,6 +27,13 @@ enum SkeletonJoint {
     FrontRightHip, FrontRightKnee, FrontRightFoot,
     BackLeftHip, BackLeftKnee, BackLeftFoot,
     BackRightHip, BackRightKnee, BackRightFoot,
+    // Head appendages (Phase 9): horns/ears are small bone chains off
+    // HeadTip reusing the same cylinder pipeline as legs/tail, not special
+    // mesh cases — see the RujiK devlog note in CLAUDE.md about antennae
+    // being "leg code" pointed a different direction. Eyes have no bone
+    // (a point, not a segment) but still need a joint so they can be
+    // carried along by head animation.
+    HornTip, LeftEarTip, RightEarTip, LeftEye, RightEye,
     SkeletonJointCount
 };
 

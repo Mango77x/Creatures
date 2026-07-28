@@ -74,6 +74,7 @@ add_executable(Creatures
     src/Camera.cpp
     src/Shader.cpp
     src/DNA.cpp
+    src/Palette.cpp
     src/Skeleton.cpp
     src/CreatureMesh.cpp
     src/Animation.cpp
