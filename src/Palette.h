@@ -12,4 +12,5 @@ glm::vec3 HsvToRgb(float h, float s, float v);
 
 glm::vec3 BodyColor(const DNA& dna);   // spine/neck/tail/legs/head
 glm::vec3 AccentColor(const DNA& dna); // horns/ears
+glm::vec3 BellyColor(const DNA& dna);  // lighter, less saturated underside band (spine/neck/tail)
 glm::vec3 EyeColor(const DNA& dna);    // high-contrast against BodyColor

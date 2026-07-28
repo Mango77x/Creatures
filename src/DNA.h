@@ -15,6 +15,13 @@ struct DNA {
     float hornSize = 0.0f;
     float eyeSize = 0.15f;
     float earSize = 0.15f;
+    // Head capsule radius (see Skeleton.cpp/CreatureMesh.cpp) — its own
+    // field so head size isn't a confusing side effect of eyeSize.
+    float headSize = 1.0f;
+    // Head capsule length, independent of headSize — a narrow-long snout
+    // and a short-wide head should be reachable separately, not locked
+    // together as one "size" knob.
+    float headLength = 1.0f;
     float bodyFat = 0.5f;
     float muscle = 0.5f;
     float aggressiveness = 0.5f;

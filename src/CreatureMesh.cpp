@@ -18,14 +18,28 @@ namespace {
     }
 
     void AppendTriangle(std::vector<MeshVertex>& out, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c,
-                         const glm::vec3& na, const glm::vec3& nb, const glm::vec3& nc, const glm::vec3& color) {
-        out.push_back({a, na, color});
-        out.push_back({b, nb, color});
-        out.push_back({c, nc, color});
+                         const glm::vec3& na, const glm::vec3& nb, const glm::vec3& nc,
+                         const glm::vec3& ca, const glm::vec3& cb, const glm::vec3& cc) {
+        out.push_back({a, na, ca});
+        out.push_back({b, nb, cb});
+        out.push_back({c, nc, cc});
     }
 
+    // crossSection.x/y scale the ellipse along `side`/`up` relative to the
+    // plain circular radius — (1,1) is the old perfect circle. A real torso
+    // isn't round in cross-section, so a uniform tube read as "capsules glued
+    // together" no matter what the DNA said; this is the single biggest
+    // lever for that (see CLAUDE.md's Phase 9 notes).
+    //
+    // topColor/bottomColor split at the equator (sin(t) >= 0) instead of a
+    // single flat color — the reference's common pale-belly/darker-back
+    // pattern, and the third of its ~3-4 tones per creature our old 2-tone
+    // (body + accent) palette was missing. The GPU interpolating each
+    // straddling triangle's vertex colors turns the hard split into a
+    // narrow (one segment wide) gradient band rather than a razor edge.
     void AppendCylinder(std::vector<MeshVertex>& out, const glm::vec3& start, const glm::vec3& end,
-                         float startRadius, float endRadius, const glm::vec3& color) {
+                         float startRadius, float endRadius, const glm::vec2& crossSection,
+                         const glm::vec3& topColor, const glm::vec3& bottomColor) {
         glm::vec3 axis = end - start;
         float length = glm::length(axis);
         if (length < 1e-5f) return;
@@ -38,16 +52,27 @@ namespace {
             float t0 = glm::two_pi<float>() * static_cast<float>(i) / kCylinderSegments;
             float t1 = glm::two_pi<float>() * static_cast<float>(i + 1) / kCylinderSegments;
 
-            glm::vec3 dir0 = cosf(t0) * side + sinf(t0) * up;
-            glm::vec3 dir1 = cosf(t1) * side + sinf(t1) * up;
+            // Ellipse offset: semi-axis lengths are radius*crossSection.x
+            // (along side) and radius*crossSection.y (along up).
+            glm::vec3 dir0 = cosf(t0) * crossSection.x * side + sinf(t0) * crossSection.y * up;
+            glm::vec3 dir1 = cosf(t1) * crossSection.x * side + sinf(t1) * crossSection.y * up;
+
+            // An ellipse's outward normal isn't the same direction as its
+            // surface offset (unlike a circle) — the perpendicular scales
+            // invert relative to the radius scale.
+            glm::vec3 normal0 = glm::normalize(cosf(t0) / crossSection.x * side + sinf(t0) / crossSection.y * up);
+            glm::vec3 normal1 = glm::normalize(cosf(t1) / crossSection.x * side + sinf(t1) / crossSection.y * up);
+
+            glm::vec3 color0 = sinf(t0) >= 0.0f ? topColor : bottomColor;
+            glm::vec3 color1 = sinf(t1) >= 0.0f ? topColor : bottomColor;
 
             glm::vec3 startA = start + dir0 * startRadius;
             glm::vec3 startB = start + dir1 * startRadius;
             glm::vec3 endA = end + dir0 * endRadius;
             glm::vec3 endB = end + dir1 * endRadius;
 
-            AppendTriangle(out, startA, endA, endB, dir0, dir0, dir1, color);
-            AppendTriangle(out, startA, endB, startB, dir0, dir1, dir1, color);
+            AppendTriangle(out, startA, endA, endB, normal0, normal0, normal1, color0, color0, color1);
+            AppendTriangle(out, startA, endB, startB, normal0, normal1, normal1, color0, color1, color1);
         }
     }
 
@@ -76,8 +101,8 @@ namespace {
                 glm::vec3 p10 = center + n10 * radius;
                 glm::vec3 p11 = center + n11 * radius;
 
-                AppendTriangle(out, p00, p10, p11, n00, n10, n11, color);
-                AppendTriangle(out, p00, p11, p01, n00, n11, n01, color);
+                AppendTriangle(out, p00, p10, p11, n00, n10, n11, color, color, color);
+                AppendTriangle(out, p00, p11, p01, n00, n11, n01, color, color, color);
             }
         }
     }
@@ -86,13 +111,29 @@ namespace {
         switch (kind) {
             case BoneKind::Spine: return 0.22f + dna.bodyFat * 0.18f + dna.muscle * 0.08f;
             case BoneKind::Neck:  return 0.12f + dna.muscle * 0.05f;
-            case BoneKind::Head:  return 0.16f + dna.eyeSize * 0.2f;
+            case BoneKind::Head:  return 0.10f + dna.headSize * 0.11f; // mirrors Skeleton.cpp's headRadiusApprox
             case BoneKind::Tail:  return 0.08f + dna.muscle * 0.04f;
             case BoneKind::Leg:   return 0.09f + dna.muscle * 0.06f;
             case BoneKind::Horn:  return 0.05f + dna.hornSize * 0.06f;
             case BoneKind::Ear:   return 0.04f + dna.earSize * 0.05f;
         }
         return 0.1f;
+    }
+
+    // Width (side) vs. height (up) ratio for AppendCylinder's ellipse, per
+    // bone kind. Only applied to bones whose PerpendicularBasis side/up
+    // actually line up with the body's real left-right/up axes (a roughly
+    // horizontal bone picks reference=(0,1,0), giving side=body-left-right
+    // and up=world-up) — spine/neck/head qualify; a leg's near-vertical axis
+    // picks an arbitrary horizontal reference instead, so flattening it
+    // wouldn't consistently mean anything anatomically and is left circular.
+    glm::vec2 CrossSectionScale(BoneKind kind) {
+        switch (kind) {
+            case BoneKind::Spine: return glm::vec2(1.2f, 0.82f);  // ribcage: wider than tall, not a tube
+            case BoneKind::Neck:  return glm::vec2(0.88f, 1.05f); // narrower, slightly taller
+            case BoneKind::Head:  return glm::vec2(1.08f, 0.94f); // slightly wider than tall
+            default: return glm::vec2(1.0f, 1.0f);
+        }
     }
 
     // Body vs. accent material per bone (Phase 9's per-DNA palette, see
@@ -105,6 +146,21 @@ namespace {
                 return AccentColor(dna);
             default:
                 return BodyColor(dna);
+        }
+    }
+
+    // Underside color for AppendCylinder's top/bottom split. Only the main
+    // body chain gets a belly band — horns/ears/head/legs stay a single flat
+    // color (returning the same value for top and bottom is what makes the
+    // split invisible there).
+    glm::vec3 BoneBellyColor(BoneKind kind, const DNA& dna) {
+        switch (kind) {
+            case BoneKind::Spine:
+            case BoneKind::Neck:
+            case BoneKind::Tail:
+                return BellyColor(dna);
+            default:
+                return BoneColor(kind, dna);
         }
     }
 }
@@ -146,7 +202,7 @@ std::vector<MeshVertex> BuildCreatureMesh(const Skeleton& skeleton, const DNA& d
         float startRadius = effectiveRadius(bone, bone.startRadiusScale);
         float endRadius = effectiveRadius(bone, bone.endRadiusScale);
         AppendCylinder(mesh, skeleton.joints[bone.startJoint], skeleton.joints[bone.endJoint], startRadius, endRadius,
-                        BoneColor(bone.kind, dna));
+                        CrossSectionScale(bone.kind), BoneColor(bone.kind, dna), BoneBellyColor(bone.kind, dna));
     }
 
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {

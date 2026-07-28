@@ -34,6 +34,13 @@ enum SkeletonJoint {
     // (a point, not a segment) but still need a joint so they can be
     // carried along by head animation.
     HornTip, LeftEarTip, RightEarTip, LeftEye, RightEye,
+    // Spine body segmentation (Phase 9): intermediate points between Pelvis
+    // and ChestEnd so the torso is a short chain of tapered segments with a
+    // width profile (fuller mid-body, narrower at both attachments) instead
+    // of one uniform-taper cylinder — see BuildSkeleton's spine loop and
+    // CLAUDE.md's note on why this is procedural (DNA-driven), not a
+    // per-segment manual sculpt like Critter Crosser's own editor.
+    SpineSeg1, SpineSeg2, SpineSeg3,
     SkeletonJointCount
 };
 

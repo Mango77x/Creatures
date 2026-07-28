@@ -35,6 +35,16 @@ glm::vec3 AccentColor(const DNA& dna) {
     return HsvToRgb(hue, saturation, value);
 }
 
+glm::vec3 BellyColor(const DNA& dna) {
+    // Lighter, less saturated than the body — the common real-animal pattern
+    // (pale underside, darker back) that a single flat body tone can't show,
+    // and the third of the reference's ~3-4 tones per creature that our old
+    // 2-tone (body + accent) palette was missing.
+    float saturation = std::max(dna.colorSaturation - 0.25f, 0.15f);
+    float value = std::min(dna.colorValue + 0.18f, 0.95f);
+    return HsvToRgb(dna.bodyHue, saturation, value);
+}
+
 glm::vec3 EyeColor(const DNA& dna) {
     // Push to whichever value extreme contrasts more with the body, so the
     // eye always reads against the head instead of risking a similar tone.
