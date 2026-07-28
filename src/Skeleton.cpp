@@ -51,14 +51,14 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[BackRightFoot] = glm::vec3(j[BackRightHip].x, 0.0f, j[BackRightHip].z);
 
     skeleton.bones = {
-        {Pelvis, ChestEnd},
-        {ChestEnd, NeckEnd},
-        {NeckEnd, HeadTip},
-        {Pelvis, TailTip},
-        {ChestEnd, FrontLeftHip}, {FrontLeftHip, FrontLeftFoot},
-        {ChestEnd, FrontRightHip}, {FrontRightHip, FrontRightFoot},
-        {Pelvis, BackLeftHip}, {BackLeftHip, BackLeftFoot},
-        {Pelvis, BackRightHip}, {BackRightHip, BackRightFoot},
+        {Pelvis, ChestEnd, BoneKind::Spine},
+        {ChestEnd, NeckEnd, BoneKind::Neck},
+        {NeckEnd, HeadTip, BoneKind::Head},
+        {Pelvis, TailTip, BoneKind::Tail},
+        {ChestEnd, FrontLeftHip, BoneKind::Leg}, {FrontLeftHip, FrontLeftFoot, BoneKind::Leg},
+        {ChestEnd, FrontRightHip, BoneKind::Leg}, {FrontRightHip, FrontRightFoot, BoneKind::Leg},
+        {Pelvis, BackLeftHip, BoneKind::Leg}, {BackLeftHip, BackLeftFoot, BoneKind::Leg},
+        {Pelvis, BackRightHip, BoneKind::Leg}, {BackRightHip, BackRightFoot, BoneKind::Leg},
     };
 
     return skeleton;

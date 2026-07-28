@@ -94,7 +94,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 3 — completada.** Esqueleto de cuadrúpedo generado desde el ADN, dibujado como figura de palo de depuración (líneas + puntos) con la cámara orbital libre de desarrollo. Verificado: las proporciones cambian con cada seed.
 
-**Fase 4 — sin empezar.** Objetivo inmediato: generador de malla (cápsulas/cilindros por hueso) a partir del esqueleto. Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 4 — completada.** Malla procedural (cilindros afinados por hueso + esferas en articulaciones) generada desde el esqueleto, con shader de iluminación básica. El esqueleto de depuración de la Fase 3 pasó a ser un overlay opcional (checkbox "Show skeleton (debug)"), dibujado sin test de profundidad para que no quede oculto dentro de la malla. Verificado: criatura sólida y reconocible que cambia de forma con el seed.
+
+**Fase 5 — sin empezar.** Objetivo inmediato: shader pixel-art/low-poly + bloquear la cámara al ángulo fijo definitivo. Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 
