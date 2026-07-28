@@ -6,15 +6,15 @@ One `phase-N` branch per phase, opened as a PR against `main`, merged by the mai
 
 Full context, architecture decisions, and non-goals live in the project's `CLAUDE.md` — this doc tracks execution status only.
 
-## Phase 1 — Window + orbital camera
+## Phase 1 — Window + orbital camera (done)
 
-- [ ] CMake project (C++20/23) with GLFW, GLAD, GLM, Dear ImGui, stb_image via FetchContent
-- [ ] Window with OpenGL context, render loop, clear color
-- [ ] Orbital camera controllable with the mouse (drag to rotate, scroll to zoom)
-- [ ] ImGui initialized, empty panel rendered
-- [ ] Placeholder object on screen to confirm the camera visually
+- [x] CMake project (C++20/23) with GLFW, GLAD, GLM, Dear ImGui, stb_image via FetchContent
+- [x] Window with OpenGL context, render loop, clear color
+- [x] Orbital camera controllable with the mouse (drag to rotate, scroll to zoom)
+- [x] ImGui initialized, empty panel rendered
+- [x] Placeholder object on screen to confirm the camera visually
 
-**Tangible result:** an executable window with a navigable 3D scene.
+**Tangible result:** an executable window with a navigable 3D scene. Verified: window opens, cube renders, drag-to-orbit and scroll-to-zoom both work.
 
 ## Phase 2 — DNA system
 
