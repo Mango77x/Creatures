@@ -29,9 +29,37 @@
 #include "Terrain.h"
 
 namespace {
-    // World is sized here (not inside main()) so it's available before the
-    // Camera is constructed and fitted to it.
     constexpr float kTerrainHalfSize = 6.0f;
+
+    // Free orbital camera controls (Phase 9 revision — see Camera.h): left
+    // mouse drag rotates, scroll zooms. Right mouse button is reserved for
+    // click-and-hold-to-move steering, so the two never conflict.
+    Camera* g_Camera = nullptr;
+    bool g_Dragging = false;
+    double g_LastMouseX = 0.0;
+    double g_LastMouseY = 0.0;
+
+    void MouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
+        if (ImGui::GetIO().WantCaptureMouse) return;
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            g_Dragging = (action == GLFW_PRESS);
+            glfwGetCursorPos(window, &g_LastMouseX, &g_LastMouseY);
+        }
+    }
+
+    void CursorPosCallback(GLFWwindow* /*window*/, double x, double y) {
+        if (g_Dragging && g_Camera) {
+            g_Camera->ProcessMouseDrag(static_cast<float>(x - g_LastMouseX),
+                                        static_cast<float>(y - g_LastMouseY));
+        }
+        g_LastMouseX = x;
+        g_LastMouseY = y;
+    }
+
+    void ScrollCallback(GLFWwindow* /*window*/, double /*xOffset*/, double yOffset) {
+        if (ImGui::GetIO().WantCaptureMouse) return;
+        if (g_Camera) g_Camera->ProcessScroll(static_cast<float>(yOffset));
+    }
 
     std::vector<float> FlattenBoneEndpoints(const Skeleton& skeleton) {
         std::vector<float> data;
@@ -51,6 +79,23 @@ namespace {
             data.insert(data.end(), {p.x, p.y, p.z});
         }
         return data;
+    }
+
+    // Wraps to (-pi, pi] so turning always takes the shortest way around
+    // instead of spinning the long way when crossing the +-pi seam.
+    float WrapAngle(float angle) {
+        angle = fmodf(angle + glm::pi<float>(), glm::two_pi<float>());
+        if (angle < 0.0f) angle += glm::two_pi<float>();
+        return angle - glm::pi<float>();
+    }
+
+    // Same helper Animation.cpp uses to bend the front hips — duplicated
+    // rather than shared across a header for one three-line function.
+    glm::vec3 RotateAroundY(const glm::vec3& point, const glm::vec3& pivot, float angle) {
+        glm::vec3 rel = point - pivot;
+        float c = cosf(angle);
+        float s = sinf(angle);
+        return pivot + glm::vec3(rel.x * c + rel.z * s, rel.y, -rel.x * s + rel.z * c);
     }
 }
 
@@ -82,10 +127,10 @@ int main() {
     glEnable(GL_DEPTH_TEST);
 
     Camera camera;
-    // No user zoom (see Camera.h) — size the fixed ortho view once so the
-    // whole map is always visible. extraHeight comfortably covers the
-    // boundary walls (yTop below) and the creature's head/neck reach.
-    camera.FitToGround(kTerrainHalfSize, 1.3f);
+    g_Camera = &camera;
+    glfwSetMouseButtonCallback(window, MouseButtonCallback);
+    glfwSetCursorPosCallback(window, CursorPosCallback);
+    glfwSetScrollCallback(window, ScrollCallback);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -174,12 +219,12 @@ int main() {
     glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 
-    // Blocky, world-fixed terrain (never moves with the creature's body
-    // transform) — a stepped heightfield built from TerrainHeight, so per-leg
-    // "raycasting" is a direct height sample rather than ray/mesh intersection.
-    // Coarse resolution on purpose, sized against kCreatureScale so a cell is
-    // roughly the size of a creature (see CLAUDE.md) — not a fine grid.
-    std::vector<MeshVertex> terrainData = BuildTerrainMesh(kTerrainHalfSize, 8);
+    // Smooth, world-fixed terrain (never moves with the creature's body
+    // transform) — a heightfield of deliberate hills/depressions built from
+    // TerrainHeight, so per-leg "raycasting" is a direct height sample
+    // rather than ray/mesh intersection. Finer resolution than the old
+    // block terraces since curvature (not flat plateaus) is the point here.
+    std::vector<MeshVertex> terrainData = BuildTerrainMesh(kTerrainHalfSize, 32);
     int terrainVertexCount = static_cast<int>(terrainData.size());
     GLuint terrainVao, terrainVbo;
     glGenVertexArrays(1, &terrainVao);
@@ -284,6 +329,13 @@ int main() {
     constexpr float kWalkSpeed = 0.9f * kCreatureScale; // units/sec, scaled with the creature (Skeleton.h)
     constexpr float kWallMargin = 0.6f;
     constexpr float kStopDistance = 0.05f;
+    // Caps how fast bodyYaw itself may change, independent of how fast the
+    // mouse target direction jumps around. Without this, a target that spins
+    // faster than the spine's lag chain (Animation.cpp) can catch up makes
+    // the gap between chest and hips wind up without bound — a real animal
+    // can leap backward, but it does that as a discrete jump/pivot, not by
+    // smearing its spine through a continuous impossible rotation.
+    constexpr float kMaxTurnRate = glm::radians(220.0f); // rad/sec
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -337,6 +389,8 @@ int main() {
         ImGui::SliderFloat("muscle", &currentDNA.muscle, 0.0f, 1.0f);
         ImGui::SliderFloat("aggressiveness", &currentDNA.aggressiveness, 0.0f, 1.0f); // not wired to any visual yet
         ImGui::TextUnformatted("Details");
+        ImGui::SliderFloat("headSize", &currentDNA.headSize, 0.6f, 1.8f);
+        ImGui::SliderFloat("headLength", &currentDNA.headLength, 0.5f, 2.0f);
         ImGui::SliderFloat("hornSize", &currentDNA.hornSize, 0.0f, 0.6f);
         ImGui::SliderFloat("eyeSize", &currentDNA.eyeSize, 0.05f, 0.3f);
         ImGui::SliderFloat("earSize", &currentDNA.earSize, 0.05f, 0.4f);
@@ -360,8 +414,6 @@ int main() {
         float dt = currentTime - lastTime;
         lastTime = currentTime;
 
-        Skeleton animatedSkeleton = ApplyAnimation(animState, currentSkeleton, currentTime, dt, lookAtTarget);
-
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         int wantedLowResWidth = std::max(1, width / pixelScale);
@@ -371,47 +423,74 @@ int main() {
         }
         float aspect = lowResHeight > 0 ? static_cast<float>(lowResWidth) / static_cast<float>(lowResHeight) : 1.0f;
 
-        // Steer toward wherever the mouse points on the ground: unproject the
-        // cursor into a world-space ray and intersect it with the y=0 plane
-        // (close enough given how small the terrain's bumps are).
+        // Steer toward wherever the mouse points on the ground, but only
+        // while the right mouse button is held (and the cursor is actually
+        // over the 3D view, not the ImGui panel or outside the window) —
+        // click-and-hold-to-move instead of the creature endlessly chasing
+        // the cursor. Unproject the cursor into a world-space ray and
+        // intersect it with the y=0 plane (close enough given how small the
+        // terrain's bumps are).
+        float clampLimit = kTerrainHalfSize - kWallMargin;
+
         int windowWidth, windowHeight;
         glfwGetWindowSize(window, &windowWidth, &windowHeight);
         double mouseX, mouseY;
         glfwGetCursorPos(window, &mouseX, &mouseY);
-        float ndcX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(windowWidth)) - 1.0f;
-        float ndcY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(windowHeight));
+        bool cursorInWindow = mouseX >= 0.0 && mouseX <= windowWidth && mouseY >= 0.0 && mouseY <= windowHeight;
+        bool rightMouseHeld = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 
-        glm::mat4 invViewProj = glm::inverse(camera.GetProjectionMatrix(aspect) * camera.GetViewMatrix());
-        glm::vec4 nearP = invViewProj * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
-        glm::vec4 farP = invViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
-        nearP /= nearP.w;
-        farP /= farP.w;
-        glm::vec3 rayOrigin(nearP);
-        glm::vec3 rayDir = glm::normalize(glm::vec3(farP) - glm::vec3(nearP));
+        if (rightMouseHeld && cursorInWindow && !ImGui::GetIO().WantCaptureMouse) {
+            float ndcX = (2.0f * static_cast<float>(mouseX) / static_cast<float>(windowWidth)) - 1.0f;
+            float ndcY = 1.0f - (2.0f * static_cast<float>(mouseY) / static_cast<float>(windowHeight));
 
-        glm::vec3 mouseGroundTarget = bodyPos;
-        if (fabsf(rayDir.y) > 1e-5f) {
-            float t = -rayOrigin.y / rayDir.y;
-            if (t > 0.0f) mouseGroundTarget = rayOrigin + rayDir * t;
-        }
-        float clampLimit = kTerrainHalfSize - kWallMargin;
-        mouseGroundTarget.x = glm::clamp(mouseGroundTarget.x, -clampLimit, clampLimit);
-        mouseGroundTarget.z = glm::clamp(mouseGroundTarget.z, -clampLimit, clampLimit);
+            glm::mat4 invViewProj = glm::inverse(camera.GetProjectionMatrix(aspect) * camera.GetViewMatrix());
+            glm::vec4 nearP = invViewProj * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+            glm::vec4 farP = invViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+            nearP /= nearP.w;
+            farP /= farP.w;
+            glm::vec3 rayOrigin(nearP);
+            glm::vec3 rayDir = glm::normalize(glm::vec3(farP) - glm::vec3(nearP));
 
-        glm::vec3 toTarget = mouseGroundTarget - bodyPos;
-        toTarget.y = 0.0f;
-        float distToTarget = glm::length(toTarget);
-        if (distToTarget > kStopDistance) {
-            glm::vec3 moveDir = toTarget / distToTarget;
-            bodyPos += moveDir * std::min(kWalkSpeed * dt, distToTarget);
-            bodyYaw = atan2f(moveDir.x, moveDir.z); // local forward is (0,0,1)
-            gaitTime += dt;
+            glm::vec3 mouseGroundTarget = bodyPos;
+            if (fabsf(rayDir.y) > 1e-5f) {
+                float t = -rayOrigin.y / rayDir.y;
+                if (t > 0.0f) mouseGroundTarget = rayOrigin + rayDir * t;
+            }
+            mouseGroundTarget.x = glm::clamp(mouseGroundTarget.x, -clampLimit, clampLimit);
+            mouseGroundTarget.z = glm::clamp(mouseGroundTarget.z, -clampLimit, clampLimit);
+
+            glm::vec3 toTarget = mouseGroundTarget - bodyPos;
+            toTarget.y = 0.0f;
+            float distToTarget = glm::length(toTarget);
+            if (distToTarget > kStopDistance) {
+                glm::vec3 moveDir = toTarget / distToTarget;
+                bodyPos += moveDir * std::min(kWalkSpeed * dt, distToTarget);
+                float desiredYaw = atan2f(moveDir.x, moveDir.z); // local forward is (0,0,1)
+                float yawStep = glm::clamp(WrapAngle(desiredYaw - bodyYaw), -kMaxTurnRate * dt, kMaxTurnRate * dt);
+                bodyYaw += yawStep;
+                gaitTime += dt;
+            }
         }
         bodyPos.x = glm::clamp(bodyPos.x, -clampLimit, clampLimit);
         bodyPos.z = glm::clamp(bodyPos.z, -clampLimit, clampLimit);
 
-        glm::mat4 yawOnly = glm::rotate(glm::mat4(1.0f), bodyYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+        // Animation needs this frame's bodyYaw (just updated above) to know
+        // how far the spine should bend — see Animation.cpp's rearYawLag.
+        Skeleton animatedSkeleton = ApplyAnimation(animState, currentSkeleton, currentTime, dt, lookAtTarget, bodyYaw);
+
+        // The rigid world transform below uses the LAGGED rear orientation,
+        // not the immediate bodyYaw — the front (chest/neck/head/front hips)
+        // already got bent to bodyYaw in local space by ApplyAnimation, so
+        // composing lagged-global * bent-local correctly lands the front at
+        // bodyYaw while the rear (pelvis/tail/back legs, never bent locally)
+        // lands at the lagged orientation. Using bodyYaw here directly would
+        // double-apply the turn to the front instead. Only ONE transform is
+        // ever used for rendering (uModel below) — the bend lives entirely
+        // in local joint positions, not in a second world transform.
+        glm::mat4 yawOnly = glm::rotate(glm::mat4(1.0f), animState.rearYawLag, glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 bodyTransformFlat = glm::translate(glm::mat4(1.0f), bodyPos) * yawOnly;
+
+        const glm::vec3& pelvisLocal = currentSkeleton.joints[Pelvis];
 
         // Per-leg raycast: for a heightfield, a vertical ray hit is just the
         // height function sampled at that (x, z) — see Terrain.h.
@@ -420,6 +499,18 @@ int main() {
         float groundHeight[4];
         for (int i = 0; i < 4; ++i) {
             glm::vec3 restFootLocal = currentSkeleton.joints[legs[i].foot];
+            // Front feet's gait cycle has to be measured from the SAME bent
+            // reference the front hip uses (chestAngleLag, Animation.cpp) —
+            // otherwise the hip swings with the chest bend but its foot
+            // target stays where an unbent body would put it, so the IK
+            // over-stretches trying to close a gap that isn't really there
+            // (reads as the front legs "flying"/not planting on a sharp
+            // turn). Rotating the rest reference here, before the single
+            // shared bodyTransform below, keeps hip and target in the same
+            // frame without needing a second world transform.
+            if (i < 2) { // front legs first, see LegDescriptor legs[] below
+                restFootLocal = RotateAroundY(restFootLocal, pelvisLocal, animState.chestAngleLag);
+            }
             glm::vec3 localGait = ComputeFootTarget(restFootLocal, gaitTime, legs[i].phaseOffset, gaitParams);
             swingLift[i] = localGait.y;
 
@@ -461,7 +552,10 @@ int main() {
         // not FABRIK: with an exact 2-segment chain, FABRIK has no explicit
         // bend-direction constraint and can flip the knee the wrong way as
         // the target moves; the analytic solver always bends toward the
-        // local-forward pole direction by construction.
+        // local-forward pole direction by construction. hipLocal already
+        // carries the front-hip bend from ApplyAnimation, and worldFootXZ
+        // above already accounts for it too (see restFootLocal), so ONE
+        // shared bodyTransform is correct here for every leg.
         for (int i = 0; i < 4; ++i) {
             glm::vec3 worldTarget(worldFootXZ[i].x, groundHeight[i] + swingLift[i], worldFootXZ[i].z);
             glm::vec4 localTarget4 = invBodyTransform * glm::vec4(worldTarget, 1.0f);

@@ -35,5 +35,8 @@ DNA GenerateDNA(uint32_t seed) {
     dna.accentHueShift = RandRange(rng, 0.0f, 1.0f) < 0.5f ? accentShiftMagnitude : -accentShiftMagnitude;
     dna.colorSaturation = RandRange(rng, 0.45f, 0.75f);
     dna.colorValue = RandRange(rng, 0.5f, 0.85f);
+
+    dna.headSize = RandRange(rng, 0.6f, 1.8f);
+    dna.headLength = RandRange(rng, 0.5f, 2.0f);
     return dna;
 }

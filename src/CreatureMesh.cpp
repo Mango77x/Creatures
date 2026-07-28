@@ -111,7 +111,7 @@ namespace {
         switch (kind) {
             case BoneKind::Spine: return 0.22f + dna.bodyFat * 0.18f + dna.muscle * 0.08f;
             case BoneKind::Neck:  return 0.12f + dna.muscle * 0.05f;
-            case BoneKind::Head:  return 0.16f + dna.eyeSize * 0.2f;
+            case BoneKind::Head:  return 0.10f + dna.headSize * 0.11f; // mirrors Skeleton.cpp's headRadiusApprox
             case BoneKind::Tail:  return 0.08f + dna.muscle * 0.04f;
             case BoneKind::Leg:   return 0.09f + dna.muscle * 0.06f;
             case BoneKind::Horn:  return 0.05f + dna.hornSize * 0.06f;

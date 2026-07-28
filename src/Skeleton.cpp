@@ -56,7 +56,7 @@ Skeleton BuildSkeleton(const DNA& dna) {
 
     const glm::vec3 neckDir = glm::normalize(up + forward);
     const glm::vec3 neckEnd = chestEnd + neckDir * dna.neckLength;
-    const glm::vec3 headTip = neckEnd + neckDir * 0.3f;
+    const glm::vec3 headTip = neckEnd + neckDir * (dna.headLength * 0.3f);
 
     const glm::vec3 tailDir = glm::normalize(up * 0.3f - forward);
     const glm::vec3 tailMid = pelvis + tailDir * (dna.tailLength * 0.5f);
@@ -83,12 +83,14 @@ Skeleton BuildSkeleton(const DNA& dna) {
     // they place actual small bone chains (horn/ears) and a point (eyes).
     //
     // The head's own joint-cap sphere (see CreatureMesh.cpp's BoneRadius for
-    // BoneKind::Head) has radius ~0.16-0.22 — bigger than earLength/eyeOffset
+    // BoneKind::Head) has radius ~0.17-0.30 — bigger than earLength/eyeOffset
     // were originally, so ears/eyes ended up entirely inside that sphere and
     // never poked through (invisible regardless of DNA). headRadiusApprox
     // mirrors that formula so appendages are placed relative to the actual
     // head surface instead of a fixed offset that happened to be too small.
-    const float headRadiusApprox = 0.16f + dna.eyeSize * 0.2f;
+    // Driven by headSize, not eyeSize — head size used to be a confusing
+    // side effect of how big the eyes were; now it's its own DNA field.
+    const float headRadiusApprox = 0.10f + dna.headSize * 0.11f;
 
     // hornSize can be 0, so the horn cylinder can end up zero-length —
     // AppendCylinder already skips those, giving hornless creatures for free
