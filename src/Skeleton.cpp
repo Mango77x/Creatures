@@ -1,19 +1,8 @@
 #include "Skeleton.h"
 
-namespace {
-    enum Joint {
-        Pelvis, ChestEnd, NeckEnd, HeadTip, TailTip,
-        FrontLeftHip, FrontLeftFoot,
-        FrontRightHip, FrontRightFoot,
-        BackLeftHip, BackLeftFoot,
-        BackRightHip, BackRightFoot,
-        JointCount
-    };
-}
-
 Skeleton BuildSkeleton(const DNA& dna) {
     Skeleton skeleton;
-    skeleton.joints.resize(JointCount);
+    skeleton.joints.resize(SkeletonJointCount);
     auto& j = skeleton.joints;
 
     const glm::vec3 forward(0.0f, 0.0f, 1.0f);
@@ -29,12 +18,14 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const glm::vec3 headTip = neckEnd + neckDir * 0.3f;
 
     const glm::vec3 tailDir = glm::normalize(up * 0.3f - forward);
+    const glm::vec3 tailMid = pelvis + tailDir * (dna.tailLength * 0.5f);
     const glm::vec3 tailTip = pelvis + tailDir * dna.tailLength;
 
     j[Pelvis] = pelvis;
     j[ChestEnd] = chestEnd;
     j[NeckEnd] = neckEnd;
     j[HeadTip] = headTip;
+    j[TailMid] = tailMid;
     j[TailTip] = tailTip;
 
     const float sideOffset = 0.3f + dna.bodyFat * 0.3f;
@@ -54,7 +45,8 @@ Skeleton BuildSkeleton(const DNA& dna) {
         {Pelvis, ChestEnd, BoneKind::Spine},
         {ChestEnd, NeckEnd, BoneKind::Neck},
         {NeckEnd, HeadTip, BoneKind::Head},
-        {Pelvis, TailTip, BoneKind::Tail},
+        {Pelvis, TailMid, BoneKind::Tail, 1.0f, 0.55f},
+        {TailMid, TailTip, BoneKind::Tail, 0.55f, 0.12f},
         {ChestEnd, FrontLeftHip, BoneKind::Leg}, {FrontLeftHip, FrontLeftFoot, BoneKind::Leg},
         {ChestEnd, FrontRightHip, BoneKind::Leg}, {FrontRightHip, FrontRightFoot, BoneKind::Leg},
         {Pelvis, BackLeftHip, BoneKind::Leg}, {BackLeftHip, BackLeftFoot, BoneKind::Leg},

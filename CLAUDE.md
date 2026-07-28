@@ -98,7 +98,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 5 — completada.** Cámara bloqueada al ángulo oblicuo fijo (yaw 45°/pitch 32°, solo zoom con scroll), shading por bandas planas (cel-shading, 4 escalones) en vez de degradado continuo, y pixel-art real vía render a baja resolución + reescalado `GL_NEAREST` (slider "Pixel scale" ajustable en vivo). Verificado contra las capturas reales de `reference/critter-crosser/`: sin contorno negro (coincide), sombreado por bandas (coincide), pixelado real (coincide en espíritu). Quedan pendientes para más adelante (no era alcance de esta fase): paleta multi-tono por criatura y geometría distinta para cuernos/ojos/orejas (el ADN ya trae esos campos, pero el generador de malla de la Fase 4 solo los usa para el tamaño de la cabeza).
 
-**Fase 6 — sin empezar.** Objetivo inmediato: animación procedural (respiración, cadena follow-the-leader para cuello/cola, mirada de cabeza hacia un objetivo). Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 6 — completada.** Cadena "follow the leader" con retraso para cuello y cola (cada articulación persigue a la anterior ya retrasada, no snap directo), respiración (el radio de la columna pulsa con una onda seno), y cabeza que se inclina hacia un "look-at target" controlable en vivo desde el panel. Columna y patas se quedan fijas en su pose de reposo (el IK de patas es Fase 7). Verificado: la criatura quieta se ve viva.
+
+**Fase 7 — sin empezar.** Objetivo inmediato: IK de patas (FABRIK o CCD) + ciclo de marcha. Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 

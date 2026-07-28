@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 5
+**Last updated:** Phase 6
 
 ## Purpose
 
@@ -62,6 +62,16 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
   - `pixelScale` (1-10) is a live ImGui slider, so the pixelation amount is tunable without recompiling.
   - ImGui itself renders after this blit, directly at full window resolution — the lab UI is never pixelated, only the 3D viewport.
 - **Known gaps, intentionally out of Phase 5's scope**: the creature is a single flat hue (no multi-tone palette like the reference's per-part coloring) and has no distinct horn/eye/ear geometry (DNA carries `hornSize`/`eyeSize`/`earSize`, but Phase 4's mesh generator only uses them to size the head capsule). Both are mesh/coloring work for a later phase or polish pass, not a Phase 5 shader concern.
+
+## Phase 6 — Procedural animation
+
+- **`SkeletonJoint` made public** (`src/Skeleton.h`): the joint-name enum moved out of `Skeleton.cpp`'s anonymous namespace so animation code can address specific joints (`NeckEnd`, `HeadTip`, `TailMid`, `TailTip`, `ChestEnd`, `Pelvis`) by name instead of only iterating bones generically.
+- **Tail split into two bones** (`Pelvis→TailMid→TailTip`, both `BoneKind::Tail`) instead of one, each with explicit `startRadiusScale`/`endRadiusScale` on `Bone` so it tapers continuously to a point across both segments. This generalized the old Tail-only special case in `CreatureMesh.cpp` into a per-bone radius multiplier any bone could use.
+- **`AnimationState` + `ApplyAnimation`** (`src/Animation.h/.cpp`): the spine and legs stay exactly at their DNA rest-pose positions (no IK/foot-planting yet — that's Phase 7); only the neck (`NeckEnd`, `HeadTip`) and tail (`TailMid`, `TailTip`) chains are animated. Each frame, a small sine-wave "leader" offset (an idle bob) is applied at the chain's fixed anchor (`ChestEnd` for the neck, `Pelvis` for the tail), and each joint in the chain exponentially chases (previous joint's already-lagged position + its rest-pose offset) — this is literally CLAUDE.md's "each segment follows the previous one with a small delay," not a spring/IK solver.
+- **Head look-at**: `HeadTip`'s target position is nudged toward `lookAtTarget` (clamped to a max lean distance so it can't detach from the neck), then smoothed the same way as the rest of the chain. Since the head has no directional mesh feature yet (no eyes), "looking" reads as the head/neck leaning toward the target rather than a true rotation — a deliberate simplification until there's an asymmetric head shape to actually orient.
+- **Breathing**: `AnimationState::breathScale` is a sine wave multiplied into the Spine bone's radius only (`CreatureMesh`'s new `breathScale` parameter), inflating/deflating the torso — independent of the neck/tail sway.
+- **Mesh/skeleton now rebuild every frame**, not just on Generate/Random seed: `main.cpp`'s render loop calls `ApplyAnimation` then re-uploads both the debug skeleton and the mesh each frame, since joint positions are no longer static between DNA regenerations. DNA regeneration resets `AnimationState` to avoid stale lag state from a differently-proportioned creature.
+- **UI**: an "Animation" panel section exposes `lookAtTarget` as a live `SliderFloat3`, so pointing it around and watching the head/neck respond is directly testable without recompiling.
 
 ## Build & toolchain
 
