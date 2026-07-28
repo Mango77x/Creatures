@@ -31,12 +31,12 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** changing a DNA parameter in the panel reshapes the skeleton's proportions live. Verified: drawn as a debug stick figure (green bone lines + yellow joint points), reshapes on Generate/Random seed. Rendered with the free orbital dev camera — see the Phase 5 note about locking the camera to a fixed angle later.
 
-## Phase 4 — Mesh generator
+## Phase 4 — Mesh generator (done)
 
-- [ ] Procedural geometry per bone (capsules/cylinders)
-- [ ] Pieces joined into one creature mesh
+- [x] Procedural geometry per bone (capsules/cylinders)
+- [x] Pieces joined into one creature mesh
 
-**Tangible result:** a solid, recognizable 3D creature on screen, generated from a seed.
+**Tangible result:** a solid, recognizable 3D creature on screen, generated from a seed. Verified: solid lit creature (body, tapered neck/tail, rounded head and feet) reshapes with each seed. Debug skeleton overlay (toggle in the panel) draws with depth testing disabled so it stays visible on top of the mesh instead of being hidden inside it.
 
 ## Phase 5 — Shaders
 

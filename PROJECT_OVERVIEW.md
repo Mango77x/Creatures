@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 3
+**Last updated:** Phase 4
 
 ## Purpose
 
@@ -41,9 +41,16 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 
 ## Phase 3 — Skeleton generator
 
-- **`Skeleton` struct** (`src/Skeleton.h`): a flat list of joint positions (`glm::vec3`) plus a list of bone index pairs connecting them — no generic bone hierarchy/transform tree yet, since the skeleton is a fixed quadruped shape, not a variable rig.
+- **`Skeleton` struct** (`src/Skeleton.h`): a flat list of joint positions (`glm::vec3`) plus a list of `Bone` entries (start joint, end joint, a `BoneKind` tag: Spine/Neck/Head/Tail/Leg) — no generic bone hierarchy/transform tree yet, since the skeleton is a fixed quadruped shape, not a variable rig. The `BoneKind` tag exists so the Phase 4 mesh generator knows how thick to make each bone without hardcoding joint indices.
 - **`BuildSkeleton(dna)`** (`src/Skeleton.cpp`): places joints procedurally from DNA fields — pelvis height from `bodyHeight`, spine/neck/tail directions and lengths from `bodyLength`/`neckLength`/`tailLength`, leg spacing from `bodyFat`. Feet are always projected to `y = 0` (ground level). `hornSize`/`eyeSize`/`earSize`/`muscle`/`aggressiveness` don't affect the skeleton — they're mesh/animation/behavior concerns for later phases.
 - **Debug rendering**: no mesh yet, so the skeleton draws as raw `GL_LINES` (bones) and `GL_POINTS` (joints) via a new unlit `line.vert`/`line.frag` shader pair (`Shader` class reused, just without the lighting normal that `basic.vert`/`basic.frag` expect). Re-uploaded to the GPU (`glBufferData`) every time DNA regenerates. The Phase 1 placeholder cube and `basic.vert`/`basic.frag` are retired from `main.cpp` for now — Phase 4 reintroduces lit shading once there's real mesh geometry to shade.
+
+## Phase 4 — Mesh generator
+
+- **`BuildCreatureMesh(skeleton, dna)`** (`src/CreatureMesh.h/.cpp`): walks every `Bone` and appends a tapered cylinder (`AppendCylinder`) between its two joints, radius picked by `BoneKind` and DNA (e.g. spine thickness from `bodyFat`/`muscle`, head size from `eyeSize`). The tail bone specifically tapers from full radius down to a near-zero tip for a pointed look, instead of the constant radius every other bone uses.
+- **Joint spheres**: every joint also gets an `AppendSphere` cap sized to the thickest bone touching it, so segments meet without gaps (e.g. the pelvis, where spine/tail/both back legs all connect) and leaf ends (feet, head tip) get a rounded cap instead of an open tube.
+- **No index buffers**: both the cylinder and sphere generators emit a flat `MeshVertex{position, normal}` triangle list (same pattern as the Phase 1 cube) — simplest thing that works at this scale, not worth an EBO yet.
+- **Rendering**: `basic.vert`/`basic.frag` (the lit shader retired in Phase 3) comes back for the solid mesh. The Phase 3 debug skeleton (lines + joint points) is now an optional overlay toggled from the panel ("Show skeleton (debug)"), drawn with `glDisable(GL_DEPTH_TEST)` so it stays visible on top of the solid mesh instead of being hidden inside it.
 
 ## Build & toolchain
 

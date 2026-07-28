@@ -12,11 +12,13 @@
 #include <string>
 #include <random>
 #include <vector>
+#include <cstddef>
 
 #include "Camera.h"
 #include "Shader.h"
 #include "DNA.h"
 #include "Skeleton.h"
+#include "CreatureMesh.h"
 
 namespace {
     Camera* g_Camera = nullptr;
@@ -49,9 +51,9 @@ namespace {
     std::vector<float> FlattenBoneEndpoints(const Skeleton& skeleton) {
         std::vector<float> data;
         data.reserve(skeleton.bones.size() * 2 * 3);
-        for (const auto& bone : skeleton.bones) {
-            const glm::vec3& a = skeleton.joints[bone.first];
-            const glm::vec3& b = skeleton.joints[bone.second];
+        for (const Bone& bone : skeleton.bones) {
+            const glm::vec3& a = skeleton.joints[bone.startJoint];
+            const glm::vec3& b = skeleton.joints[bone.endJoint];
             data.insert(data.end(), {a.x, a.y, a.z, b.x, b.y, b.z});
         }
         return data;
@@ -109,6 +111,19 @@ int main() {
 
     Shader lineShader(std::string(CREATURES_SHADER_DIR) + "line.vert",
                        std::string(CREATURES_SHADER_DIR) + "line.frag");
+    Shader meshShader(std::string(CREATURES_SHADER_DIR) + "basic.vert",
+                      std::string(CREATURES_SHADER_DIR) + "basic.frag");
+
+    GLuint meshVao, meshVbo;
+    glGenVertexArrays(1, &meshVao);
+    glGenBuffers(1, &meshVbo);
+    glBindVertexArray(meshVao);
+    glBindBuffer(GL_ARRAY_BUFFER, meshVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, position));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, normal));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
 
     GLuint boneVao, boneVbo, jointVao, jointVbo;
     glGenVertexArrays(1, &boneVao);
@@ -131,6 +146,8 @@ int main() {
     Skeleton currentSkeleton = BuildSkeleton(currentDNA);
     int boneVertexCount = 0;
     int jointVertexCount = 0;
+    int meshVertexCount = 0;
+    bool showSkeletonDebug = false;
 
     auto uploadSkeleton = [&](const Skeleton& skeleton) {
         std::vector<float> boneData = FlattenBoneEndpoints(skeleton);
@@ -144,6 +161,14 @@ int main() {
         glBufferData(GL_ARRAY_BUFFER, jointData.size() * sizeof(float), jointData.data(), GL_DYNAMIC_DRAW);
     };
     uploadSkeleton(currentSkeleton);
+
+    auto uploadMesh = [&](const Skeleton& skeleton, const DNA& dna) {
+        std::vector<MeshVertex> meshData = BuildCreatureMesh(skeleton, dna);
+        meshVertexCount = static_cast<int>(meshData.size());
+        glBindBuffer(GL_ARRAY_BUFFER, meshVbo);
+        glBufferData(GL_ARRAY_BUFFER, meshData.size() * sizeof(MeshVertex), meshData.data(), GL_DYNAMIC_DRAW);
+    };
+    uploadMesh(currentSkeleton, currentDNA);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -159,6 +184,7 @@ int main() {
             currentDNA = GenerateDNA(seedInput);
             currentSkeleton = BuildSkeleton(currentDNA);
             uploadSkeleton(currentSkeleton);
+            uploadMesh(currentSkeleton, currentDNA);
         }
         ImGui::SameLine();
         if (ImGui::Button("Random seed")) {
@@ -166,7 +192,9 @@ int main() {
             currentDNA = GenerateDNA(seedInput);
             currentSkeleton = BuildSkeleton(currentDNA);
             uploadSkeleton(currentSkeleton);
+            uploadMesh(currentSkeleton, currentDNA);
         }
+        ImGui::Checkbox("Show skeleton (debug)", &showSkeletonDebug);
         ImGui::Separator();
         ImGui::Text("seed: %u", currentDNA.seed);
         ImGui::Text("bodyLength: %.3f", currentDNA.bodyLength);
@@ -190,19 +218,34 @@ int main() {
 
         float aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
 
-        lineShader.Use();
-        lineShader.SetMat4("uModel", glm::mat4(1.0f));
-        lineShader.SetMat4("uView", camera.GetViewMatrix());
-        lineShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
+        meshShader.Use();
+        meshShader.SetMat4("uModel", glm::mat4(1.0f));
+        meshShader.SetMat4("uView", camera.GetViewMatrix());
+        meshShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
+        meshShader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
+        glBindVertexArray(meshVao);
+        glDrawArrays(GL_TRIANGLES, 0, meshVertexCount);
 
-        lineShader.SetVec3("uColor", glm::vec3(0.6f, 0.75f, 0.4f));
-        glBindVertexArray(boneVao);
-        glDrawArrays(GL_LINES, 0, boneVertexCount);
+        if (showSkeletonDebug) {
+            // Debug overlay: draw on top of the solid mesh regardless of what's in front of it.
+            glDisable(GL_DEPTH_TEST);
 
-        lineShader.SetVec3("uColor", glm::vec3(1.0f, 0.85f, 0.2f));
-        glPointSize(8.0f);
-        glBindVertexArray(jointVao);
-        glDrawArrays(GL_POINTS, 0, jointVertexCount);
+            lineShader.Use();
+            lineShader.SetMat4("uModel", glm::mat4(1.0f));
+            lineShader.SetMat4("uView", camera.GetViewMatrix());
+            lineShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
+
+            lineShader.SetVec3("uColor", glm::vec3(0.9f, 0.2f, 0.2f));
+            glBindVertexArray(boneVao);
+            glDrawArrays(GL_LINES, 0, boneVertexCount);
+
+            lineShader.SetVec3("uColor", glm::vec3(1.0f, 0.85f, 0.2f));
+            glPointSize(8.0f);
+            glBindVertexArray(jointVao);
+            glDrawArrays(GL_POINTS, 0, jointVertexCount);
+
+            glEnable(GL_DEPTH_TEST);
+        }
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -210,6 +253,8 @@ int main() {
         glfwSwapBuffers(window);
     }
 
+    glDeleteVertexArrays(1, &meshVao);
+    glDeleteBuffers(1, &meshVbo);
     glDeleteVertexArrays(1, &boneVao);
     glDeleteBuffers(1, &boneVbo);
     glDeleteVertexArrays(1, &jointVao);
