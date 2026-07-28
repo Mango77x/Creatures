@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 4
+**Last updated:** Phase 5
 
 ## Purpose
 
@@ -30,7 +30,7 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 
 - **Windowing/context**: GLFW creates the OS window and the OpenGL context (the connection between your code and the GPU driver).
 - **Function loading**: OpenGL's modern functions aren't declared by the OS headers on Windows (which only ship OpenGL 1.1). GLAD generates the loader that resolves the real function pointers from the driver at runtime.
-- **Camera**: an orbital camera — no free-fly controls. It orbits a fixed target point; mouse drag changes yaw/pitch around it, scroll changes distance. Implemented with GLM's view/projection matrices. **This is a development/debug camera**, useful for inspecting the generated skeleton/mesh from any angle while building Phases 3-4. The final look locks the camera to a fixed oblique angle in Phase 5 (see `CLAUDE.md`'s architecture decisions) — the free orbit goes away then.
+- **Camera**: orbits a fixed target point using spherical coordinates (yaw/pitch/distance), implemented with GLM's view/projection matrices. Through Phase 4 this was fully mouse-controllable (a dev/debug convenience for inspecting the generated skeleton/mesh from any angle); **as of Phase 5, yaw and pitch are locked** to a fixed oblique/dimetric angle (see `CLAUDE.md`'s camera decision and the Phase 5 section below) — only scroll-to-zoom remains.
 - **UI**: Dear ImGui is initialized against the same GLFW window/OpenGL context (via its `imgui_impl_glfw` and `imgui_impl_opengl3` backends) and renders an empty panel, ready to host the DNA lab controls starting Phase 2.
 
 ## Phase 2 — DNA system
@@ -51,6 +51,17 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 - **Joint spheres**: every joint also gets an `AppendSphere` cap sized to the thickest bone touching it, so segments meet without gaps (e.g. the pelvis, where spine/tail/both back legs all connect) and leaf ends (feet, head tip) get a rounded cap instead of an open tube.
 - **No index buffers**: both the cylinder and sphere generators emit a flat `MeshVertex{position, normal}` triangle list (same pattern as the Phase 1 cube) — simplest thing that works at this scale, not worth an EBO yet.
 - **Rendering**: `basic.vert`/`basic.frag` (the lit shader retired in Phase 3) comes back for the solid mesh. The Phase 3 debug skeleton (lines + joint points) is now an optional overlay toggled from the panel ("Show skeleton (debug)"), drawn with `glDisable(GL_DEPTH_TEST)` so it stays visible on top of the solid mesh instead of being hidden inside it.
+
+## Phase 5 — Shaders
+
+- **Fixed camera** (`src/Camera.h/.cpp`): `Camera`'s constructor now takes explicit `yawRadians`/`pitchRadians`, defaulting to Creatures' final oblique/dimetric angle (45°/32°). `ProcessMouseDrag` and its callback wiring in `main.cpp` are gone — only `ProcessScroll` (zoom) remains.
+- **Banded (cel-shaded) lighting** (`shaders/basic.frag`): the diffuse term is quantized into 4 discrete steps (`floor(diffuse * bands) / bands`) instead of a smooth falloff, matching the reference's flat tone bands instead of a gradient.
+- **Real pixel-art via a low-res render pass**, not a post-process filter — this is the actual technique the Critter Crosser research confirmed (low-poly 3D + a fixed-angle pixelation shader, see `CLAUDE.md`'s cited sources):
+  - The 3D scene (mesh + optional debug skeleton) renders into an offscreen framebuffer (`lowResFbo`/`lowResColorTex`/`lowResDepthRbo`) sized to `window size / pixelScale`, recreated on resize or when `pixelScale` changes.
+  - That low-res color texture is then blitted to the real window via a fullscreen quad (`shaders/screen.vert/.frag`) with `GL_NEAREST` filtering — the nearest-neighbor upscale is what turns smooth 3D edges into chunky pixel blocks.
+  - `pixelScale` (1-10) is a live ImGui slider, so the pixelation amount is tunable without recompiling.
+  - ImGui itself renders after this blit, directly at full window resolution — the lab UI is never pixelated, only the 3D viewport.
+- **Known gaps, intentionally out of Phase 5's scope**: the creature is a single flat hue (no multi-tone palette like the reference's per-part coloring) and has no distinct horn/eye/ear geometry (DNA carries `hornSize`/`eyeSize`/`earSize`, but Phase 4's mesh generator only uses them to size the head capsule). Both are mesh/coloring work for a later phase or polish pass, not a Phase 5 shader concern.
 
 ## Build & toolchain
 

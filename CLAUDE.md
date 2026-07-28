@@ -96,7 +96,9 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 **Fase 4 — completada.** Malla procedural (cilindros afinados por hueso + esferas en articulaciones) generada desde el esqueleto, con shader de iluminación básica. El esqueleto de depuración de la Fase 3 pasó a ser un overlay opcional (checkbox "Show skeleton (debug)"), dibujado sin test de profundidad para que no quede oculto dentro de la malla. Verificado: criatura sólida y reconocible que cambia de forma con el seed.
 
-**Fase 5 — sin empezar.** Objetivo inmediato: shader pixel-art/low-poly + bloquear la cámara al ángulo fijo definitivo. Ver `docs/DEVELOPMENT_PLAN.md`.
+**Fase 5 — completada.** Cámara bloqueada al ángulo oblicuo fijo (yaw 45°/pitch 32°, solo zoom con scroll), shading por bandas planas (cel-shading, 4 escalones) en vez de degradado continuo, y pixel-art real vía render a baja resolución + reescalado `GL_NEAREST` (slider "Pixel scale" ajustable en vivo). Verificado contra las capturas reales de `reference/critter-crosser/`: sin contorno negro (coincide), sombreado por bandas (coincide), pixelado real (coincide en espíritu). Quedan pendientes para más adelante (no era alcance de esta fase): paleta multi-tono por criatura y geometría distinta para cuernos/ojos/orejas (el ADN ya trae esos campos, pero el generador de malla de la Fase 4 solo los usa para el tamaño de la cabeza).
+
+**Fase 6 — sin empezar.** Objetivo inmediato: animación procedural (respiración, cadena follow-the-leader para cuello/cola, mirada de cabeza hacia un objetivo). Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 

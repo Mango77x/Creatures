@@ -13,6 +13,7 @@
 #include <random>
 #include <vector>
 #include <cstddef>
+#include <algorithm>
 
 #include "Camera.h"
 #include "Shader.h"
@@ -22,26 +23,6 @@
 
 namespace {
     Camera* g_Camera = nullptr;
-    bool g_Dragging = false;
-    double g_LastMouseX = 0.0;
-    double g_LastMouseY = 0.0;
-
-    void MouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
-        if (ImGui::GetIO().WantCaptureMouse) return;
-        if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            g_Dragging = (action == GLFW_PRESS);
-            glfwGetCursorPos(window, &g_LastMouseX, &g_LastMouseY);
-        }
-    }
-
-    void CursorPosCallback(GLFWwindow* /*window*/, double x, double y) {
-        if (g_Dragging && g_Camera) {
-            g_Camera->ProcessMouseDrag(static_cast<float>(x - g_LastMouseX),
-                                        static_cast<float>(y - g_LastMouseY));
-        }
-        g_LastMouseX = x;
-        g_LastMouseY = y;
-    }
 
     void ScrollCallback(GLFWwindow* /*window*/, double /*xOffset*/, double yOffset) {
         if (ImGui::GetIO().WantCaptureMouse) return;
@@ -99,8 +80,6 @@ int main() {
     Camera camera;
     g_Camera = &camera;
 
-    glfwSetMouseButtonCallback(window, MouseButtonCallback);
-    glfwSetCursorPosCallback(window, CursorPosCallback);
     glfwSetScrollCallback(window, ScrollCallback);
 
     IMGUI_CHECKVERSION();
@@ -113,6 +92,69 @@ int main() {
                        std::string(CREATURES_SHADER_DIR) + "line.frag");
     Shader meshShader(std::string(CREATURES_SHADER_DIR) + "basic.vert",
                       std::string(CREATURES_SHADER_DIR) + "basic.frag");
+    Shader screenShader(std::string(CREATURES_SHADER_DIR) + "screen.vert",
+                         std::string(CREATURES_SHADER_DIR) + "screen.frag");
+
+    // Fullscreen quad (NDC position + UV) used to blit the low-res render target.
+    constexpr float kQuadVertices[] = {
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f,
+         1.0f,  1.0f,  1.0f, 1.0f,
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+    };
+    GLuint quadVao, quadVbo;
+    glGenVertexArrays(1, &quadVao);
+    glGenBuffers(1, &quadVbo);
+    glBindVertexArray(quadVao);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
+    // Low-res offscreen target: the 3D scene renders here at a fraction of the
+    // window's resolution, then gets blitted back with GL_NEAREST filtering —
+    // that upscale is what actually produces the chunky pixel-art look.
+    GLuint lowResFbo = 0, lowResColorTex = 0, lowResDepthRbo = 0;
+    int lowResWidth = 0, lowResHeight = 0;
+    int pixelScale = 4;
+
+    auto recreateLowResTarget = [&](int width, int height) {
+        if (lowResFbo != 0) {
+            glDeleteFramebuffers(1, &lowResFbo);
+            glDeleteTextures(1, &lowResColorTex);
+            glDeleteRenderbuffers(1, &lowResDepthRbo);
+        }
+
+        lowResWidth = width;
+        lowResHeight = height;
+
+        glGenFramebuffers(1, &lowResFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, lowResFbo);
+
+        glGenTextures(1, &lowResColorTex);
+        glBindTexture(GL_TEXTURE_2D, lowResColorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, lowResWidth, lowResHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, lowResColorTex, 0);
+
+        glGenRenderbuffers(1, &lowResDepthRbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, lowResDepthRbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, lowResWidth, lowResHeight);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, lowResDepthRbo);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Low-res framebuffer is incomplete" << std::endl;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    };
 
     GLuint meshVao, meshVbo;
     glGenVertexArrays(1, &meshVao);
@@ -195,6 +237,7 @@ int main() {
             uploadMesh(currentSkeleton, currentDNA);
         }
         ImGui::Checkbox("Show skeleton (debug)", &showSkeletonDebug);
+        ImGui::SliderInt("Pixel scale", &pixelScale, 1, 10);
         ImGui::Separator();
         ImGui::Text("seed: %u", currentDNA.seed);
         ImGui::Text("bodyLength: %.3f", currentDNA.bodyLength);
@@ -212,11 +255,21 @@ int main() {
 
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
-        glViewport(0, 0, width, height);
+
+        int wantedLowResWidth = std::max(1, width / pixelScale);
+        int wantedLowResHeight = std::max(1, height / pixelScale);
+        if (wantedLowResWidth != lowResWidth || wantedLowResHeight != lowResHeight) {
+            recreateLowResTarget(wantedLowResWidth, wantedLowResHeight);
+        }
+
+        float aspect = lowResHeight > 0 ? static_cast<float>(lowResWidth) / static_cast<float>(lowResHeight) : 1.0f;
+
+        // Pass 1: render the 3D scene at low resolution.
+        glBindFramebuffer(GL_FRAMEBUFFER, lowResFbo);
+        glViewport(0, 0, lowResWidth, lowResHeight);
+        glEnable(GL_DEPTH_TEST);
         glClearColor(0.08f, 0.09f, 0.11f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        float aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
 
         meshShader.Use();
         meshShader.SetMat4("uModel", glm::mat4(1.0f));
@@ -240,12 +293,24 @@ int main() {
             glDrawArrays(GL_LINES, 0, boneVertexCount);
 
             lineShader.SetVec3("uColor", glm::vec3(1.0f, 0.85f, 0.2f));
-            glPointSize(8.0f);
+            glPointSize(3.0f);
             glBindVertexArray(jointVao);
             glDrawArrays(GL_POINTS, 0, jointVertexCount);
-
-            glEnable(GL_DEPTH_TEST);
         }
+
+        // Pass 2: blit the low-res image back at window size with nearest-neighbor
+        // filtering — that upscale is what turns it into chunky pixel art.
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+        glDisable(GL_DEPTH_TEST);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        screenShader.Use();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, lowResColorTex);
+        screenShader.SetInt("uScreenTexture", 0);
+        glBindVertexArray(quadVao);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -259,6 +324,11 @@ int main() {
     glDeleteBuffers(1, &boneVbo);
     glDeleteVertexArrays(1, &jointVao);
     glDeleteBuffers(1, &jointVbo);
+    glDeleteVertexArrays(1, &quadVao);
+    glDeleteBuffers(1, &quadVbo);
+    glDeleteFramebuffers(1, &lowResFbo);
+    glDeleteTextures(1, &lowResColorTex);
+    glDeleteRenderbuffers(1, &lowResDepthRbo);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

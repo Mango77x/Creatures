@@ -4,22 +4,13 @@
 #include <algorithm>
 
 namespace {
-    constexpr float kMouseSensitivity = 0.005f;
     constexpr float kScrollSensitivity = 0.5f;
     constexpr float kMinDistance = 1.5f;
     constexpr float kMaxDistance = 40.0f;
-    // Clamped short of the poles so yaw doesn't flip direction at the top/bottom.
-    constexpr float kMaxPitch = 1.5f;
 }
 
-Camera::Camera(glm::vec3 target, float distance)
-    : m_Target(target), m_Distance(distance), m_YawRadians(0.0f), m_PitchRadians(0.3f) {}
-
-void Camera::ProcessMouseDrag(float dxPixels, float dyPixels) {
-    m_YawRadians -= dxPixels * kMouseSensitivity;
-    m_PitchRadians += dyPixels * kMouseSensitivity;
-    m_PitchRadians = std::clamp(m_PitchRadians, -kMaxPitch, kMaxPitch);
-}
+Camera::Camera(glm::vec3 target, float distance, float yawRadians, float pitchRadians)
+    : m_Target(target), m_Distance(distance), m_YawRadians(yawRadians), m_PitchRadians(pitchRadians) {}
 
 void Camera::ProcessScroll(float yOffset) {
     m_Distance -= yOffset * kScrollSensitivity;
