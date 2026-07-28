@@ -20,6 +20,7 @@
 #include "DNA.h"
 #include "Skeleton.h"
 #include "CreatureMesh.h"
+#include "Animation.h"
 
 namespace {
     Camera* g_Camera = nullptr;
@@ -204,13 +205,17 @@ int main() {
     };
     uploadSkeleton(currentSkeleton);
 
-    auto uploadMesh = [&](const Skeleton& skeleton, const DNA& dna) {
-        std::vector<MeshVertex> meshData = BuildCreatureMesh(skeleton, dna);
+    auto uploadMesh = [&](const Skeleton& skeleton, const DNA& dna, float breathScale) {
+        std::vector<MeshVertex> meshData = BuildCreatureMesh(skeleton, dna, breathScale);
         meshVertexCount = static_cast<int>(meshData.size());
         glBindBuffer(GL_ARRAY_BUFFER, meshVbo);
         glBufferData(GL_ARRAY_BUFFER, meshData.size() * sizeof(MeshVertex), meshData.data(), GL_DYNAMIC_DRAW);
     };
-    uploadMesh(currentSkeleton, currentDNA);
+    uploadMesh(currentSkeleton, currentDNA, 0.0f);
+
+    AnimationState animState;
+    glm::vec3 lookAtTarget = currentSkeleton.joints[HeadTip] + glm::vec3(0.0f, 0.0f, 0.6f);
+    float lastTime = static_cast<float>(glfwGetTime());
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -225,19 +230,22 @@ int main() {
         if (ImGui::Button("Generate")) {
             currentDNA = GenerateDNA(seedInput);
             currentSkeleton = BuildSkeleton(currentDNA);
-            uploadSkeleton(currentSkeleton);
-            uploadMesh(currentSkeleton, currentDNA);
+            animState = AnimationState{};
+            lookAtTarget = currentSkeleton.joints[HeadTip] + glm::vec3(0.0f, 0.0f, 0.6f);
         }
         ImGui::SameLine();
         if (ImGui::Button("Random seed")) {
             seedInput = std::random_device{}();
             currentDNA = GenerateDNA(seedInput);
             currentSkeleton = BuildSkeleton(currentDNA);
-            uploadSkeleton(currentSkeleton);
-            uploadMesh(currentSkeleton, currentDNA);
+            animState = AnimationState{};
+            lookAtTarget = currentSkeleton.joints[HeadTip] + glm::vec3(0.0f, 0.0f, 0.6f);
         }
         ImGui::Checkbox("Show skeleton (debug)", &showSkeletonDebug);
         ImGui::SliderInt("Pixel scale", &pixelScale, 1, 10);
+        ImGui::Separator();
+        ImGui::TextUnformatted("Animation");
+        ImGui::SliderFloat3("Look-at target", &lookAtTarget.x, -2.0f, 5.0f);
         ImGui::Separator();
         ImGui::Text("seed: %u", currentDNA.seed);
         ImGui::Text("bodyLength: %.3f", currentDNA.bodyLength);
@@ -252,6 +260,14 @@ int main() {
         ImGui::Text("muscle: %.3f", currentDNA.muscle);
         ImGui::Text("aggressiveness: %.3f", currentDNA.aggressiveness);
         ImGui::End();
+
+        float currentTime = static_cast<float>(glfwGetTime());
+        float dt = currentTime - lastTime;
+        lastTime = currentTime;
+
+        Skeleton animatedSkeleton = ApplyAnimation(animState, currentSkeleton, currentTime, dt, lookAtTarget);
+        uploadSkeleton(animatedSkeleton);
+        uploadMesh(animatedSkeleton, currentDNA, animState.breathScale);
 
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);

@@ -46,13 +46,13 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 **Tangible result:** visible jump from generic gray geometry to the project's final visual style, viewed from the final fixed camera angle instead of free orbit. Verified against real Critter Crosser screenshots (`reference/critter-crosser/`): no cartoon outline (matches), flat-banded shading instead of a smooth gradient (matches), real pixel-art blockiness from the low-res render pass (matches in spirit). Known gaps intentionally deferred, not Phase 5 scope: single-hue coloring vs. the reference's multi-tone palettes, and no distinct horn/eye/ear geometry yet (DNA already carries `hornSize`/`eyeSize`/`earSize`, but the Phase 4 mesh generator only uses them to size the head capsule, not as separate shapes).
 
-## Phase 6 — Procedural animation
+## Phase 6 — Procedural animation (done)
 
-- [ ] Breathing (torso pulse)
-- [ ] Follow-the-leader chain for neck/tail (delayed segment-to-segment motion)
-- [ ] Head look-at a target
+- [x] Breathing (torso pulse)
+- [x] Follow-the-leader chain for neck/tail (delayed segment-to-segment motion)
+- [x] Head look-at a target
 
-**Tangible result:** a stationary creature that reads as alive.
+**Tangible result:** a stationary creature that reads as alive. Verified: neck/tail sway with a visible delay between segments, the spine visibly pulses, and the head leans toward the ImGui-controlled "Look-at target" point.
 
 ## Phase 7 — Leg IK + gait cycle
 

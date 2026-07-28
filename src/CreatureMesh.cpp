@@ -93,24 +93,27 @@ namespace {
     }
 }
 
-std::vector<MeshVertex> BuildCreatureMesh(const Skeleton& skeleton, const DNA& dna) {
+std::vector<MeshVertex> BuildCreatureMesh(const Skeleton& skeleton, const DNA& dna, float breathScale) {
     std::vector<MeshVertex> mesh;
+
+    auto effectiveRadius = [&](const Bone& bone, float radiusScale) {
+        float radius = BoneRadius(bone.kind, dna) * radiusScale;
+        if (bone.kind == BoneKind::Spine) radius *= (1.0f + breathScale);
+        return radius;
+    };
 
     std::vector<float> jointRadius(skeleton.joints.size(), 0.0f);
     for (const Bone& bone : skeleton.bones) {
-        float r = BoneRadius(bone.kind, dna);
-        jointRadius[bone.startJoint] = std::max(jointRadius[bone.startJoint], r);
-        jointRadius[bone.endJoint] = std::max(jointRadius[bone.endJoint], r);
+        float startRadius = effectiveRadius(bone, bone.startRadiusScale);
+        float endRadius = effectiveRadius(bone, bone.endRadiusScale);
+        jointRadius[bone.startJoint] = std::max(jointRadius[bone.startJoint], startRadius);
+        jointRadius[bone.endJoint] = std::max(jointRadius[bone.endJoint], endRadius);
     }
 
     for (const Bone& bone : skeleton.bones) {
-        float radius = BoneRadius(bone.kind, dna);
-        float endRadius = radius;
-        if (bone.kind == BoneKind::Tail) {
-            endRadius = radius * 0.15f; // tapers to a point at the tip
-            jointRadius[bone.endJoint] = endRadius;
-        }
-        AppendCylinder(mesh, skeleton.joints[bone.startJoint], skeleton.joints[bone.endJoint], radius, endRadius);
+        float startRadius = effectiveRadius(bone, bone.startRadiusScale);
+        float endRadius = effectiveRadius(bone, bone.endRadiusScale);
+        AppendCylinder(mesh, skeleton.joints[bone.startJoint], skeleton.joints[bone.endJoint], startRadius, endRadius);
     }
 
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {
