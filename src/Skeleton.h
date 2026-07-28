@@ -12,10 +12,10 @@ enum class BoneKind { Spine, Neck, Head, Tail, Leg };
 // joints (e.g. HeadTip) by name, not just iterate bones generically.
 enum SkeletonJoint {
     Pelvis, ChestEnd, NeckEnd, HeadTip, TailMid, TailTip,
-    FrontLeftHip, FrontLeftFoot,
-    FrontRightHip, FrontRightFoot,
-    BackLeftHip, BackLeftFoot,
-    BackRightHip, BackRightFoot,
+    FrontLeftHip, FrontLeftKnee, FrontLeftFoot,
+    FrontRightHip, FrontRightKnee, FrontRightFoot,
+    BackLeftHip, BackLeftKnee, BackLeftFoot,
+    BackRightHip, BackRightKnee, BackRightFoot,
     SkeletonJointCount
 };
 

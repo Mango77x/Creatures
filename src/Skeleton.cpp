@@ -31,15 +31,26 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const float sideOffset = 0.3f + dna.bodyFat * 0.3f;
     const glm::vec3 frontHipBase = chestEnd - forward * 0.15f;
     const glm::vec3 backHipBase = pelvis + forward * 0.15f;
+    // Small forward bend so the knee has a consistent direction to fold
+    // toward — without this a straight hip-foot line gives FABRIK no hint
+    // about which way to bend the leg.
+    const glm::vec3 kneeBendHint = forward * 0.08f;
 
     j[FrontLeftHip] = frontHipBase - right * sideOffset;
     j[FrontLeftFoot] = glm::vec3(j[FrontLeftHip].x, 0.0f, j[FrontLeftHip].z);
+    j[FrontLeftKnee] = (j[FrontLeftHip] + j[FrontLeftFoot]) * 0.5f + kneeBendHint;
+
     j[FrontRightHip] = frontHipBase + right * sideOffset;
     j[FrontRightFoot] = glm::vec3(j[FrontRightHip].x, 0.0f, j[FrontRightHip].z);
+    j[FrontRightKnee] = (j[FrontRightHip] + j[FrontRightFoot]) * 0.5f + kneeBendHint;
+
     j[BackLeftHip] = backHipBase - right * sideOffset;
     j[BackLeftFoot] = glm::vec3(j[BackLeftHip].x, 0.0f, j[BackLeftHip].z);
+    j[BackLeftKnee] = (j[BackLeftHip] + j[BackLeftFoot]) * 0.5f + kneeBendHint;
+
     j[BackRightHip] = backHipBase + right * sideOffset;
     j[BackRightFoot] = glm::vec3(j[BackRightHip].x, 0.0f, j[BackRightHip].z);
+    j[BackRightKnee] = (j[BackRightHip] + j[BackRightFoot]) * 0.5f + kneeBendHint;
 
     skeleton.bones = {
         {Pelvis, ChestEnd, BoneKind::Spine},
@@ -47,10 +58,22 @@ Skeleton BuildSkeleton(const DNA& dna) {
         {NeckEnd, HeadTip, BoneKind::Head},
         {Pelvis, TailMid, BoneKind::Tail, 1.0f, 0.55f},
         {TailMid, TailTip, BoneKind::Tail, 0.55f, 0.12f},
-        {ChestEnd, FrontLeftHip, BoneKind::Leg}, {FrontLeftHip, FrontLeftFoot, BoneKind::Leg},
-        {ChestEnd, FrontRightHip, BoneKind::Leg}, {FrontRightHip, FrontRightFoot, BoneKind::Leg},
-        {Pelvis, BackLeftHip, BoneKind::Leg}, {BackLeftHip, BackLeftFoot, BoneKind::Leg},
-        {Pelvis, BackRightHip, BoneKind::Leg}, {BackRightHip, BackRightFoot, BoneKind::Leg},
+
+        {ChestEnd, FrontLeftHip, BoneKind::Leg},
+        {FrontLeftHip, FrontLeftKnee, BoneKind::Leg},
+        {FrontLeftKnee, FrontLeftFoot, BoneKind::Leg},
+
+        {ChestEnd, FrontRightHip, BoneKind::Leg},
+        {FrontRightHip, FrontRightKnee, BoneKind::Leg},
+        {FrontRightKnee, FrontRightFoot, BoneKind::Leg},
+
+        {Pelvis, BackLeftHip, BoneKind::Leg},
+        {BackLeftHip, BackLeftKnee, BoneKind::Leg},
+        {BackLeftKnee, BackLeftFoot, BoneKind::Leg},
+
+        {Pelvis, BackRightHip, BoneKind::Leg},
+        {BackRightHip, BackRightKnee, BoneKind::Leg},
+        {BackRightKnee, BackRightFoot, BoneKind::Leg},
     };
 
     return skeleton;

@@ -1,6 +1,6 @@
 # Creatures — Project Overview
 
-**Last updated:** Phase 6
+**Last updated:** Phase 7
 
 ## Purpose
 
@@ -72,6 +72,15 @@ This section grows as each phase lands real subsystems (DNA struct, skeleton gen
 - **Breathing**: `AnimationState::breathScale` is a sine wave multiplied into the Spine bone's radius only (`CreatureMesh`'s new `breathScale` parameter), inflating/deflating the torso — independent of the neck/tail sway.
 - **Mesh/skeleton now rebuild every frame**, not just on Generate/Random seed: `main.cpp`'s render loop calls `ApplyAnimation` then re-uploads both the debug skeleton and the mesh each frame, since joint positions are no longer static between DNA regenerations. DNA regeneration resets `AnimationState` to avoid stale lag state from a differently-proportioned creature.
 - **UI**: an "Animation" panel section exposes `lookAtTarget` as a live `SliderFloat3`, so pointing it around and watching the head/neck respond is directly testable without recompiling.
+
+## Phase 7 — Leg IK + gait cycle
+
+- **Knee joints** (`src/Skeleton.h/.cpp`): each leg is now 3 bones (`Hip→Knee→Foot`) instead of a single segment — a straight-line leg gives an IK solver nothing to bend, so the knee (with a small forward bend-hint offset in the rest pose) is a prerequisite for any real IK.
+- **`SolveFABRIK`** (`src/IK.h/.cpp`): a standard FABRIK solver (backward pass pulls the end effector to the target and walks back fixing segment lengths, forward pass re-pins the root and walks forward again fixing lengths, repeated a few iterations). The hip is pinned as the chain root; the rest-pose knee position is reused each frame purely as the starting guess, which is enough to keep the bend direction stable frame to frame for a 2-segment chain.
+- **`ComputeFootTarget`** (`src/Gait.h/.cpp`): stateless procedural gait — during "stance" the foot's body-local position drifts backward at the same rate the body walks forward (so it stays roughly planted in world space without tracking a touch-down point), and during "swing" it arcs forward and up (`sin` lift) to the next stance position. `GaitParams` (speed/stride/lift) are live ImGui sliders.
+- **Gait pattern**: diagonal trot — front-left + back-right share phase 0.0, front-right + back-left share phase 0.5 — expressed as a small `LegDescriptor` array in `main.cpp` rather than hardcoded per-leg logic, so it isn't tied to exactly 4 legs even though the skeleton is fixed-quadruped for now.
+- **Body movement**: the creature loops on a small circle around the fixed camera target (`bodyTransform` = translate + yaw-toward-tangent, computed from `time`) — a straight walk path would leave the Phase 5 fixed-angle view almost immediately. All leg-IK/gait math happens in the skeleton's own local space; `bodyTransform` only affects the render-time `uModel`, so the solver never needs to know the body is moving.
+- **Ground plane**: a simple static quad at `y = 0`, drawn with the same lit `basic` shader but its own muted color and an identity model matrix (it doesn't move with the body).
 
 ## Build & toolchain
 
