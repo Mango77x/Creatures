@@ -83,10 +83,10 @@ Every seed was reading as visually similar ("the same ugly giraffe") regardless 
 - [x] Camera switched perspective → orthographic, fixed, sized to always show the whole map, no user zoom (`Camera::FitToGround`) — confirmed against reference screenshots showing zero perspective convergence
 - [x] Terrain reworked from a smooth heightfield to stepped block terraces (`Terrain.cpp`)
 - [x] `kCreatureScale` (`Skeleton.h`) — creature was several terrain blocks long vs. the reference's ~1 block; single global scale constant applied to skeleton + mesh radii, animation/gait constants scaled to match
-- [ ] Elliptical (non-circular) bone cross-sections — current cylinders-of-revolution are the main reason the creature still reads as "capsules glued together" rather than an animal body
-- [ ] 3-tone palette (body/belly/accent) instead of 2
+- [x] Elliptical (non-circular) bone cross-sections for spine/neck/head (`CreatureMesh.cpp`'s `CrossSectionScale`) — legs stay circular since their near-vertical axis doesn't give `PerpendicularBasis` an anatomically meaningful side/up to flatten
+- [x] 3-tone palette (`BellyColor` in `Palette.h/.cpp`) — lighter/less-saturated underside band on spine/neck/tail, split at the cross-section's equator with per-vertex color interpolation softening the seam
 
-**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped creatures at roughly the right scale relative to a blocky, fully-framed map. Not yet closed — see the two open items above.
+**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped creatures — non-tubular bodies with a paler belly band — at roughly the right scale relative to a blocky, fully-framed map. No further concrete items queued; stays open until the user confirms creatures look good on their own (see the phase intro above).
 
 ## Phase 10 — Crossbreeding (blocked until Phase 9 closes)
 

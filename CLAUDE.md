@@ -115,8 +115,10 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 - Cámara pasada de perspectiva a ortográfica fija, sin zoom, encuadrando el mapa completo (`Camera::FitToGround`).
 - Terreno rehecho como terrazas de bloques en vez de heightfield suave (`Terrain.cpp`).
 - `kCreatureScale` para que la criatura ocupe ~1 bloque de terreno, como en la referencia, en vez de varios.
+- Secciones del cuerpo elípticas (no circulares) en columna/cuello/cabeza: `AppendCylinder` ahora acepta una elipse (ancho y alto independientes) en vez de un único radio, con la normal recalculada correctamente para la elipse (no es la misma dirección que el desplazamiento, a diferencia de un círculo). Solo se aplica donde la base side/up de `PerpendicularBasis` coincide con los ejes reales izquierda-derecha/arriba-abajo del cuerpo (huesos casi horizontales); las patas se quedan circulares porque su base perpendicular no tiene ese significado anatómico.
+- Paleta a 3 tonos: `BellyColor` (más clara, menos saturada) se aplica a la mitad inferior de columna/cuello/cola, con transición suave de un segmento (interpolación de color por vértice), imitando el vientre más pálido típico de la referencia.
 
-Pendiente (siguiente iteración): secciones del cuerpo elípticas en vez de cilindros de revolución circular (la razón #1 de por qué sigue leyéndose genérica), paleta a 3 tonos. Ver `docs/DEVELOPMENT_PLAN.md`.
+Sigue abierta — no hay más pendientes concretos anotados ahora mismo, pero la fase no se cierra formalmente hasta que el usuario confirme que las criaturas se ven bien por sí solas. Ver `docs/DEVELOPMENT_PLAN.md`.
 
 ## Convenciones de trabajo con Claude Code
 
