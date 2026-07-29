@@ -22,8 +22,14 @@ struct AnimationState {
     // Only the look-at glance gets its own small lag layer, on top of the
     // otherwise-rigid head — see ApplyAnimation.
     glm::vec3 headLean{0.0f};
+    // tailMid/tailTip are driven by a real damped spring (see ApplyAnimation),
+    // not a position lag — so they carry actual velocity, not just position,
+    // and can overshoot/settle instead of only ever easing monotonically
+    // toward a target.
     glm::vec3 tailMid{0.0f};
     glm::vec3 tailTip{0.0f};
+    glm::vec3 tailMidVelocity{0.0f};
+    glm::vec3 tailTipVelocity{0.0f};
 
     // rearYawLag: the hips'/global-transform orientation, slowest of all to
     // catch up to bodyYaw. chestAngleLag/spine3/spine2/spine1AngleLag: the

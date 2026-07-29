@@ -4,7 +4,25 @@
 #include <cmath>
 
 namespace {
-    constexpr float kTailFollowSpeed = 5.0f;
+    // Tail spring-damper: a real damped spring per segment (mass=1) instead
+    // of a position lag — acceleration = stiffness*(target-pos) -
+    // damping*velocity - gravity, integrated with semi-implicit Euler. Unlike
+    // ExpLerp (which can only ease monotonically toward a target and can
+    // never overshoot), a real spring keeps swinging a little after the body
+    // stops moving and settles instead of just trailing behind — that's the
+    // actual "whip" quality a passive tail has that a pure lag can't produce.
+    // The tip's constants are softer/less damped than the mid segment's, so
+    // the very end of the tail is the whippiest part (mirrors the old
+    // kTailFollowSpeed*0.8 relationship, just via real dynamics now).
+    constexpr float kTailMidStiffness = 90.0f;
+    constexpr float kTailMidDamping = 12.0f;
+    constexpr float kTailTipStiffness = 40.0f;
+    constexpr float kTailTipDamping = 6.0f;
+    // Constant downward acceleration standing in for the tail's own weight —
+    // the spring settles wherever this balances against stiffness times
+    // displacement, so the droop emerges from the physics instead of being a
+    // baked-in offset (the old kTailDroopAmount, now removed).
+    constexpr float kTailGravity = 5.0f * kCreatureScale;
 
     // Spine bend chain, chest (front) to spine1 (nearest the hips): each
     // link chases the one in front of it, progressively slower — a genuine
@@ -34,9 +52,6 @@ namespace {
     // leg, so it should visibly trail further behind a turn than the body
     // that's dragging it.
     constexpr float kTailSwingFollowSpeed = 1.4f;
-    // Constant downward sag, not part of the oscillating bob — the tail is
-    // the one appendage nothing is holding up against gravity.
-    constexpr float kTailDroopAmount = 0.12f * kCreatureScale;
 
     // kBobAmount/kMaxHeadLean are absolute world-unit offsets tuned for the
     // pre-kCreatureScale skeleton size — scaled down to match so they stay
@@ -145,12 +160,12 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
 
     // A small idle bob/sway "leader" signal the neck/tail chains chase with a
     // delay — this is what makes a creature that never moves still read as
-    // breathing/alive, per CLAUDE.md's Phase 6 goal. Tail also gets a
-    // constant downward droop (weight, not oscillation — see kTailDroopAmount)
-    // and its own extra swing lag (below) since it's a continuation of the
-    // spine, not a rigid stub.
+    // breathing/alive, per CLAUDE.md's Phase 6 goal. The tail's own downward
+    // droop is no longer baked in here — it now comes from kTailGravity
+    // acting on the spring below — and it still gets its own extra swing lag
+    // (below) since it's a continuation of the spine, not a rigid stub.
     glm::vec3 neckBob(0.0f, sinf(time * kBobSpeed) * kBobAmount, sinf(time * kBobSpeed * 0.5f) * kBobAmount * 0.5f);
-    glm::vec3 tailBob(0.0f, sinf(time * kBobSpeed + 1.0f) * kBobAmount - kTailDroopAmount, 0.0f);
+    glm::vec3 tailBob(0.0f, sinf(time * kBobSpeed + 1.0f) * kBobAmount, 0.0f);
 
     glm::vec3 neckLeader = bentChestEnd + neckBob; // rooted at the chest's actual (slower) position...
     glm::vec3 tailLeader = tailBase + tailBob;
@@ -198,11 +213,23 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     state.tailSwingLag = ExpLerpAngle(state.tailSwingLag, state.rearYawLag, kTailSwingFollowSpeed, dt);
     float tailSwingAngle = WrapAngle(state.rearYawLag - state.tailSwingLag);
 
+    // Real damped spring per segment (mass=1, semi-implicit Euler: velocity
+    // updates from the current position error first, then position updates
+    // from the new velocity — stable and standard for spring integration).
+    // tailTip's target chains off tailMid's PREVIOUS (not yet updated this
+    // frame) position, same "each link reacts to the one before it" pattern
+    // the spine bend chain above uses.
     glm::vec3 tailMidTarget = tailLeader + RotateVectorAroundY(restTailMid - tailBase, tailSwingAngle);
-    state.tailMid = ExpLerp(state.tailMid, tailMidTarget, kTailFollowSpeed, dt);
+    glm::vec3 tailMidAccel = kTailMidStiffness * (tailMidTarget - state.tailMid) - kTailMidDamping * state.tailMidVelocity;
+    tailMidAccel.y -= kTailGravity;
+    state.tailMidVelocity += tailMidAccel * dt;
+    state.tailMid += state.tailMidVelocity * dt;
 
     glm::vec3 tailTipTarget = state.tailMid + RotateVectorAroundY(restTailTip - restTailMid, tailSwingAngle);
-    state.tailTip = ExpLerp(state.tailTip, tailTipTarget, kTailFollowSpeed * 0.8f, dt);
+    glm::vec3 tailTipAccel = kTailTipStiffness * (tailTipTarget - state.tailTip) - kTailTipDamping * state.tailTipVelocity;
+    tailTipAccel.y -= kTailGravity;
+    state.tailTipVelocity += tailTipAccel * dt;
+    state.tailTip += state.tailTipVelocity * dt;
 
     animated.joints[NeckEnd] = state.neckEnd;
     animated.joints[SnoutBase] = snoutBaseRigid;

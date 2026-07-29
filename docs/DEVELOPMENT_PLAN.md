@@ -74,7 +74,7 @@ Full context, architecture decisions, and non-goals live in the project's `CLAUD
 
 ## Phase 9 — Visual variety (in progress, open-ended)
 
-Every seed was reading as visually similar ("the same ugly giraffe") regardless of DNA. Crossbreeding two creatures that look the same has no demonstrative point, so this phase stays open — no fixed close date — until creatures look good on their own; Phase 10 (crossbreeding) is explicitly blocked until then (user decision, 2026-07-28).
+Every seed was reading as visually similar ("the same ugly giraffe") regardless of DNA. Crossbreeding two creatures that look the same has no demonstrative point, so this phase stays open — no fixed close date — until creatures look and move well; crossbreeding (now Phase 12) is explicitly blocked until this phase, Phase 10 (physical body simulation), and Phase 11 (save/load) all close (user decision, 2026-07-28, sharpened 2026-07-29 to explicitly include physical realism and a save/load prerequisite, not just visuals).
 
 - [x] Per-DNA color palette (`Palette.h/.cpp`): body + accent (horn/ear) + eye color from HSV, carried per-vertex (`MeshVertex::color`) and combined with the `uColor` uniform
 - [x] Real horn/ear geometry — small bone chains reusing the leg/cylinder pipeline, not new mesh primitives
@@ -90,21 +90,48 @@ Every seed was reading as visually similar ("the same ugly giraffe") regardless 
 - [x] Click-and-hold movement — the creature only moves while the right mouse button is held over the 3D view, instead of endlessly chasing the cursor
 - [x] Realistic body kinematics (explicit user goal: "simular las kinemáticas de un cuerpo de la manera más realista posible") — the spine/neck/tail actually bend through a turn instead of the whole rigid body pivoting on the spot. See `Animation.cpp` and `PROJECT_OVERVIEW.md` for the full design: a front-to-back lag chain (each spine link chases the one in front of it, progressively slower toward the hips), a max turn-rate clamp on `bodyYaw` plus a hard per-joint bend-angle clamp (both needed — smoothing alone doesn't bound how far a sustained fast turn can wind the spine), a neck/head that leads on its own faster angle instead of inheriting the chest's lag, `NeckEnd`/`HeadTip` recomputed rigidly every frame instead of independently eased (two independently-lagged ends of one capsule was what caused visible stretching/wobble), horns/ears/eyes rotating (not just translating) with the head, a tail with constant gravity droop plus its own trailing swing lag, and front legs' gait targets bent by the same angle as the front hips so the IK doesn't over-reach and "fly" off the ground during a sharp turn.
 - [x] `headSize`/`headLength` DNA fields — head capsule radius and length, previously a fixed constant (length) and a confusing side effect of `eyeSize` (radius)
+- [x] `spineArch`/`legHeightBias`/`neckPitch`/`tailPitch` DNA fields (2026-07-29) — the spine was a dead-straight line, all 4 legs stood exactly level, and neck/tail take-off angle were fixed constants regardless of DNA; all four now vary per seed
+- [x] Flattened joint caps (`CreatureMesh.cpp`'s `AppendEllipsoid`) — fixes visible round "bead" bulges at the segmented spine's internal joints
+- [x] Legs fused to the torso surface (`sideOffset` mirrors the spine's real rendered radius) instead of a floating strut bone
+- [x] Head split into a short round cranium (`SnoutBase`) + tapering snout (`HeadTip`, new `snoutTaper` DNA field); horns/ears/eyes relocated from the nose tip to the cranium
+- [x] Tail spring-damper physics (mass + stiffness + damping + gravity, real velocity integration) replacing the old position-lag — a small-scale prototype of Phase 10's full body-physics simulation
+- [x] DNA panel converted to ImGui tabs (Body/Details/Color/Animation) instead of one long scrolling list
 
-**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped, non-tubular creatures with a paler belly band, walking over a hilly (not blocky) terrain with a free-orbit camera, whose spine/neck/tail genuinely bend through turns instead of pivoting rigidly, and any DNA field can be hand-tuned live from the panel. No further concrete items queued; stays open until the user confirms creatures look and move well on their own (see the phase intro above).
+**Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped, non-tubular creatures with a paler belly band and real quadruped anatomy (arched/level spine, asymmetric leg height, angled neck/tail, a proper cranium+snout head), walking over a hilly (not blocky) terrain with a free-orbit camera, whose spine/neck/tail genuinely bend through turns instead of pivoting rigidly, whose tail reacts with real physical inertia, and any DNA field can be hand-tuned live from a tabbed panel. No further concrete items queued for the visual/DNA side; stays open until the user confirms creatures look and move well — which now explicitly includes Phase 10's physical-reaction work below, not just this phase's scope.
 
-## Phase 10 — Crossbreeding (blocked until Phase 9 closes)
+## Phase 10 — Physical body simulation (planned, not started)
 
-- [ ] Pick two creatures (DNA sets)
+Replaces analytic IK (`IK.cpp`, for live posing) and `Animation.cpp`'s lag chains with a particle + constraint physics solver — DNA, `BuildSkeleton` (hierarchy + rest pose), and `Gait.cpp` (foot target function) are all reused unchanged. Decided 2026-07-29: the user wants genuine physical interaction between creatures (a tiger grabbing/knocking down a deer, with real weight/force affecting balance) — a purely kinematic system can't express that, since IK has no notion of force, mass, or "who wins a contested pull," it only ever places an exact position with no resistance. Technical reference: Rain World (bodies as chains of mass particles connected by distance/angle constraints, solved via Verlet integration + iterative relaxation; procedural "muscles" applying a force toward a target pose instead of fixing position directly). Full design writeup in `CLAUDE.md`'s architecture decisions.
+
+- [ ] Particles: every existing joint gains a previous-position (Verlet, no separate velocity variable) and a mass
+- [ ] Distance constraints: every existing bone (`Skeleton::bones`) becomes a length constraint, rest length taken from `BuildSkeleton` unchanged
+- [ ] Angle constraints: bend limits between consecutive bones sharing a joint, derived generically by walking the bone graph
+- [ ] Muscles: a small force pulling each joint toward its target (DNA rest pose + `Gait.cpp` target + movement direction) — same principle as Phase 9's tail spring, applied to the whole body
+- [ ] Ground contact: the foot constrained to not go below `TerrainHeight(x,z)`, resolved in the same relaxation pass as everything else
+- [ ] Per-frame solve loop: Verlet integration (forces → predicted position) + several (4-8) relaxation passes over all constraints
+
+**Tangible result:** two creatures physically colliding/grabbing each other produce real, unscripted reactions (knocked off balance, dragged, resisted) instead of canned animations — plus a topology-agnostic solver that's a stronger foundation for future body plans than the current kinematic system. **Blocks crossbreeding exactly like Phase 9 does — a prerequisite, not adjacent work.**
+
+## Phase 11 — Save/load DNA (planned, not started)
+
+Pulled forward from the old single "Export" phase (user decision, 2026-07-29): without saving/loading creatures, Phase 12 (crossbreeding) has no way to get "two distinct creatures" other than typing two seeds by hand — save/load is a practical prerequisite for crossbreeding to be usable, not a later nice-to-have. The rest of the old export phase (glTF/OBJ, genealogy history) doesn't depend on this and stays in Phase 13, at the end.
+
+- [ ] Serialize `DNA` to disk (simple format, JSON or binary) and reload it back into the same creature
+- [ ] ImGui panel: list/pick among saved creatures, save the current one under a name
+
+**Tangible result:** close the app, reopen it, load a previously-saved creature, and get exactly the same one back (same DNA, same shape/color).
+
+## Phase 12 — Crossbreeding (blocked until Phases 9, 10, and 11 close)
+
+- [ ] Pick two creatures (DNA sets, from Phase 11's saved library)
 - [ ] Parameter interpolation + discrete trait inheritance + mutation
 - [ ] Instant preview of the offspring
 
 **Tangible result:** crossing two visually distinct creatures produces a third with blended traits.
 
-## Phase 11 — Export & persistence
+## Phase 13 — Export
 
 - [ ] Export to glTF/OBJ
-- [ ] Save/load DNA to disk
 - [ ] Genealogy history (optional)
 
-**Tangible result:** an exported creature opens correctly in an external viewer (e.g. Blender); a saved DNA file reloads into the same creature.
+**Tangible result:** an exported creature opens correctly in an external viewer (e.g. Blender).
