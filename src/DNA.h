@@ -46,9 +46,13 @@ struct DNA {
     // (near-vertical).
     float neckPitch = 45.0f;
     // Tail take-off angle in degrees, measured up from horizontal-backward.
-    // 16.7 matches the old fixed constant (normalize(up*0.3 - forward)). A
-    // creature can carry its neck high and its tail low (or vice versa), so
-    // this is its own field rather than sharing neckPitch.
+    // 16.7 matches the old fixed constant (normalize(up*0.3 - forward)) —
+    // a near-level/slightly-up base, letting gravity (Animation.cpp's tail
+    // physics) produce the actual downward droop/curve from there. A steep
+    // upward base reads as warthog-specific (an unusual, erect-tail trait),
+    // not the general mammal default. A creature can carry its neck high
+    // and its tail low (or vice versa), so this is its own field rather
+    // than sharing neckPitch.
     float tailPitch = 16.7f;
 
     // Color (see Palette.h): bodyHue/accentHueShift pick the two hues, the

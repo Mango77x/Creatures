@@ -28,6 +28,7 @@
 #include "IK.h"
 #include "Gait.h"
 #include "Terrain.h"
+#include "Physics.h"
 
 namespace {
     constexpr float kTerrainHalfSize = 6.0f;
@@ -304,6 +305,37 @@ int main() {
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
 
+    // Phase 10, step 1: a standalone hanging-chain test for the new
+    // particle+constraint solver (Physics.h), fully decoupled from the
+    // creature — validates the core Verlet/relaxation math (does it stay
+    // stable, settle naturally, swing right when the pinned end moves)
+    // before any creature-specific physics code is written. Reuses the same
+    // GL_LINES-of-raw-positions layout as the skeleton debug overlay above.
+    GLuint ropeVao, ropeVbo;
+    glGenVertexArrays(1, &ropeVao);
+    glGenBuffers(1, &ropeVbo);
+    glBindVertexArray(ropeVao);
+    glBindBuffer(GL_ARRAY_BUFFER, ropeVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
+    constexpr int kRopeParticleCount = 6;
+    constexpr float kRopeSegmentLength = 0.2f * kCreatureScale;
+    const glm::vec3 kRopeAnchorBase(2.5f, 2.0f, 0.0f);
+    PhysicsBody ropeTest;
+    ropeTest.particles.resize(kRopeParticleCount);
+    for (int i = 0; i < kRopeParticleCount; ++i) {
+        glm::vec3 pos = kRopeAnchorBase - glm::vec3(0.0f, kRopeSegmentLength * i, 0.0f);
+        ropeTest.particles[i].position = pos;
+        ropeTest.particles[i].previousPosition = pos;
+        ropeTest.particles[i].inverseMass = (i == 0) ? 0.0f : 1.0f; // first particle pinned
+    }
+    for (int i = 0; i < kRopeParticleCount - 1; ++i) {
+        ropeTest.distanceConstraints.push_back({i, i + 1, kRopeSegmentLength});
+    }
+    bool showRopeTest = false;
+
     uint32_t seedInput = 1;
     DNA currentDNA = GenerateDNA(seedInput);
     Skeleton currentSkeleton = BuildSkeleton(currentDNA);
@@ -392,6 +424,7 @@ int main() {
             lookAtTarget = currentSkeleton.joints[HeadTip] + glm::vec3(0.0f, 0.0f, 0.6f);
         }
         ImGui::Checkbox("Show skeleton (debug)", &showSkeletonDebug);
+        ImGui::Checkbox("Show rope physics test (Phase 10, step 1)", &showRopeTest);
         ImGui::SliderInt("Pixel scale", &pixelScale, 1, 10);
         ImGui::Text("seed: %u", currentDNA.seed);
         ImGui::Separator();
@@ -461,6 +494,18 @@ int main() {
         float currentTime = static_cast<float>(glfwGetTime());
         float dt = currentTime - lastTime;
         lastTime = currentTime;
+
+        if (showRopeTest) {
+            // Oscillate the pinned end so the rest of the chain visibly
+            // swings/lags behind it, not just hangs static — the actual
+            // thing this test needs to prove before any creature code
+            // builds on the same solver.
+            glm::vec3 anchor = kRopeAnchorBase + glm::vec3(sinf(currentTime * 1.5f) * 0.6f, 0.0f, 0.0f);
+            ropeTest.particles[0].position = anchor;
+            constexpr glm::vec3 kRopeGravity(0.0f, -9.8f * kCreatureScale, 0.0f);
+            float clampedDt = std::min(dt, 1.0f / 30.0f); // avoid a huge first-frame/stall dt destabilizing the solver
+            StepPhysics(ropeTest, clampedDt, kRopeGravity);
+        }
 
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
@@ -672,6 +717,31 @@ int main() {
             glDrawArrays(GL_POINTS, 0, jointVertexCount);
         }
 
+        if (showRopeTest) {
+            // Rope particle positions are already absolute world coordinates
+            // (the solver doesn't know about the creature's bodyTransform at
+            // all), so this draws with an identity model matrix, unlike the
+            // skeleton debug overlay above.
+            std::vector<float> ropeLineData;
+            ropeLineData.reserve((ropeTest.particles.size() - 1) * 2 * 3);
+            for (size_t i = 0; i + 1 < ropeTest.particles.size(); ++i) {
+                const glm::vec3& a = ropeTest.particles[i].position;
+                const glm::vec3& b = ropeTest.particles[i + 1].position;
+                ropeLineData.insert(ropeLineData.end(), {a.x, a.y, a.z, b.x, b.y, b.z});
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, ropeVbo);
+            glBufferData(GL_ARRAY_BUFFER, ropeLineData.size() * sizeof(float), ropeLineData.data(), GL_DYNAMIC_DRAW);
+
+            glDisable(GL_DEPTH_TEST);
+            lineShader.Use();
+            lineShader.SetMat4("uModel", glm::mat4(1.0f));
+            lineShader.SetMat4("uView", camera.GetViewMatrix());
+            lineShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspect));
+            lineShader.SetVec3("uColor", glm::vec3(0.3f, 0.9f, 1.0f));
+            glBindVertexArray(ropeVao);
+            glDrawArrays(GL_LINES, 0, static_cast<int>(ropeLineData.size() / 3));
+        }
+
         // Pass 2: blit the low-res image back at window size with nearest-neighbor
         // filtering — that upscale is what turns it into chunky pixel art.
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -704,6 +774,8 @@ int main() {
     glDeleteBuffers(1, &boneVbo);
     glDeleteVertexArrays(1, &jointVao);
     glDeleteBuffers(1, &jointVbo);
+    glDeleteVertexArrays(1, &ropeVao);
+    glDeleteBuffers(1, &ropeVbo);
     glDeleteVertexArrays(1, &quadVao);
     glDeleteBuffers(1, &quadVbo);
     glDeleteFramebuffers(1, &lowResFbo);

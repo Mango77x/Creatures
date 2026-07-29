@@ -99,18 +99,25 @@ Every seed was reading as visually similar ("the same ugly giraffe") regardless 
 
 **Tangible result so far:** two different seeds produce visibly distinct-colored, distinctly-shaped, non-tubular creatures with a paler belly band and real quadruped anatomy (arched/level spine, asymmetric leg height, angled neck/tail, a proper cranium+snout head), walking over a hilly (not blocky) terrain with a free-orbit camera, whose spine/neck/tail genuinely bend through turns instead of pivoting rigidly, whose tail reacts with real physical inertia, and any DNA field can be hand-tuned live from a tabbed panel. No further concrete items queued for the visual/DNA side; stays open until the user confirms creatures look and move well — which now explicitly includes Phase 10's physical-reaction work below, not just this phase's scope.
 
-## Phase 10 — Physical body simulation (planned, not started)
+## Phase 10 — Physical body simulation (in progress, `phase-10` branch)
 
-Replaces analytic IK (`IK.cpp`, for live posing) and `Animation.cpp`'s lag chains with a particle + constraint physics solver — DNA, `BuildSkeleton` (hierarchy + rest pose), and `Gait.cpp` (foot target function) are all reused unchanged. Decided 2026-07-29: the user wants genuine physical interaction between creatures (a tiger grabbing/knocking down a deer, with real weight/force affecting balance) — a purely kinematic system can't express that, since IK has no notion of force, mass, or "who wins a contested pull," it only ever places an exact position with no resistance. Technical reference: Rain World (bodies as chains of mass particles connected by distance/angle constraints, solved via Verlet integration + iterative relaxation; procedural "muscles" applying a force toward a target pose instead of fixing position directly). Full design writeup in `CLAUDE.md`'s architecture decisions.
+Replaces analytic IK (`IK.cpp`, for live posing) and `Animation.cpp`'s lag chains with a particle + constraint physics solver — DNA, `BuildSkeleton` (hierarchy + rest pose), and `Gait.cpp` (foot target function) are all reused unchanged. Decided 2026-07-29: the user wants genuine physical interaction between creatures (a tiger grabbing/knocking down a deer, with real weight/force affecting balance) — a purely kinematic system can't express that, since IK has no notion of force, mass, or "who wins a contested pull," it only ever places an exact position with no resistance. Technical reference: Rain World (bodies as chains of mass particles connected by distance/angle constraints, solved via Verlet integration + iterative relaxation; procedural "muscles" applying a force toward a target pose instead of fixing position directly). Full design writeup in `CLAUDE.md`'s architecture decisions. `main` keeps the current kinematic system untouched until this branch proves itself better, not just different.
 
-- [ ] Particles: every existing joint gains a previous-position (Verlet, no separate velocity variable) and a mass
-- [ ] Distance constraints: every existing bone (`Skeleton::bones`) becomes a length constraint, rest length taken from `BuildSkeleton` unchanged
-- [ ] Angle constraints: bend limits between consecutive bones sharing a joint, derived generically by walking the bone graph
-- [ ] Muscles: a small force pulling each joint toward its target (DNA rest pose + `Gait.cpp` target + movement direction) — same principle as Phase 9's tail spring, applied to the whole body
-- [ ] Ground contact: the foot constrained to not go below `TerrainHeight(x,z)`, resolved in the same relaxation pass as everything else
-- [ ] Per-frame solve loop: Verlet integration (forces → predicted position) + several (4-8) relaxation passes over all constraints
+- [x] Step 1 — isolated solver (`Physics.h`/`.cpp`): particles/distance/angle/muscle/ground constraints, verified with a standalone 6-particle hanging chain (debug toggle "Show rope physics test") before any creature code used it.
+- [x] Step 2 — tail as a PhysicsBody (`Animation.cpp`): replaced Phase 9's hand-rolled spring-damper with a 5-particle body (pinned pelvis + 4 tail vertebrae, `TailSeg1-3`/`TailTip`, up from the original 2-segment `TailMid`). Took 6 real bugs found only through the user running the app to get right — inverted angle-constraint sign, muscle pull applied per-relaxation-iteration instead of per-frame (looked rigid), double-counted body rotation (90° turn looked like 180°), no velocity damping (perpetual oscillation), gravity as a flat constant instead of scaled to the tail's own length (short vs. long tails behaved inconsistently), and distance constraints frozen at init instead of refreshed per frame (broke live `tailLength` editing). User-confirmed as of this write-up.
+- [ ] Step 3 — spine/neck/head as a physics chain (not started)
+- [ ] Step 4 — legs with ground contact (not started)
+- [ ] Step 5 — full integration + side-by-side comparison against `main` (not started)
 
-**Tangible result:** two creatures physically colliding/grabbing each other produce real, unscripted reactions (knocked off balance, dragged, resisted) instead of canned animations — plus a topology-agnostic solver that's a stronger foundation for future body plans than the current kinematic system. **Blocks crossbreeding exactly like Phase 9 does — a prerequisite, not adjacent work.**
+Design status:
+- [x] Particles: every existing joint gains a previous-position (Verlet, no separate velocity variable) and a mass
+- [x] Distance constraints: every existing bone (`Skeleton::bones`) becomes a length constraint, rest length taken from `BuildSkeleton` unchanged
+- [x] Angle constraints: bend limits between consecutive bones sharing a joint, derived generically by walking the bone graph
+- [x] Muscles: a small force pulling each joint toward its target (DNA rest pose + `Gait.cpp` target + movement direction) — proven on the tail, still pending for spine/neck/head (Step 3) and legs (Step 4)
+- [ ] Ground contact: `GroundConstraint` exists in `Physics.h` and is exercised by the Step 1 rope test, but no creature body uses it yet — that's Step 4 (legs)
+- [x] Per-frame solve loop: Verlet integration (forces → predicted position) + several (4-8) relaxation passes over all constraints
+
+**Tangible result so far:** the tail reacts with genuine physical inertia (gravity-driven droop, turn-lag, settling instead of oscillating) via a topology-agnostic solver, confirmed by the user as an improvement over the Phase 9 hand-tuned spring. Full "two creatures physically colliding/grabbing each other" payoff still requires Steps 3-5. **Blocks crossbreeding exactly like Phase 9 does — a prerequisite, not adjacent work.**
 
 ## Phase 11 — Save/load DNA (planned, not started)
 

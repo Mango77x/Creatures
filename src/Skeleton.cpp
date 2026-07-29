@@ -87,9 +87,14 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const glm::vec3 snoutBase = neckEnd + neckDir * (headRadiusApprox * 0.9f);
     const glm::vec3 headTip = snoutBase + neckDir * (dna.headLength * 0.3f);
 
+    // 4 segments instead of a single midpoint (Phase 10 follow-up) — evenly
+    // spaced along the same straight rest-pose line, same "more joints to
+    // bend at" reasoning as the spine's own segmentation below.
     const float tailPitchRad = glm::radians(dna.tailPitch);
     const glm::vec3 tailDir = glm::normalize(-forward * cosf(tailPitchRad) + up * sinf(tailPitchRad));
-    const glm::vec3 tailMid = pelvis + tailDir * (dna.tailLength * 0.5f);
+    const glm::vec3 tailSeg1 = pelvis + tailDir * (dna.tailLength * 0.25f);
+    const glm::vec3 tailSeg2 = pelvis + tailDir * (dna.tailLength * 0.5f);
+    const glm::vec3 tailSeg3 = pelvis + tailDir * (dna.tailLength * 0.75f);
     const glm::vec3 tailTip = pelvis + tailDir * dna.tailLength;
 
     j[Pelvis] = pelvis;
@@ -97,7 +102,9 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[NeckEnd] = neckEnd;
     j[SnoutBase] = snoutBase;
     j[HeadTip] = headTip;
-    j[TailMid] = tailMid;
+    j[TailSeg1] = tailSeg1;
+    j[TailSeg2] = tailSeg2;
+    j[TailSeg3] = tailSeg3;
     j[TailTip] = tailTip;
 
     // Spine segmentation (Phase 9): three evenly-spaced points between
@@ -188,8 +195,14 @@ Skeleton BuildSkeleton(const DNA& dna) {
         {SnoutBase, HornTip, BoneKind::Horn, 1.0f, 0.05f},
         {SnoutBase, LeftEarTip, BoneKind::Ear, 1.0f, 0.6f},
         {SnoutBase, RightEarTip, BoneKind::Ear, 1.0f, 0.6f},
-        {Pelvis, TailMid, BoneKind::Tail, 1.0f, 0.55f},
-        {TailMid, TailTip, BoneKind::Tail, 0.55f, 0.12f},
+        // 4 tapered segments instead of 1 (Phase 10 follow-up) — same linear
+        // taper from full width at the pelvis down to 0.12 at the tip as
+        // before, just interpolated across more sub-bones so gravity/physics
+        // has several joints to bend at instead of one.
+        {Pelvis, TailSeg1, BoneKind::Tail, 1.0f, 0.78f},
+        {TailSeg1, TailSeg2, BoneKind::Tail, 0.78f, 0.56f},
+        {TailSeg2, TailSeg3, BoneKind::Tail, 0.56f, 0.34f},
+        {TailSeg3, TailTip, BoneKind::Tail, 0.34f, 0.12f},
 
         // No ChestEnd/Pelvis -> Hip "strut" bone: the hip joint itself now
         // sits right at the torso's surface (see spineEndHalfWidth above),

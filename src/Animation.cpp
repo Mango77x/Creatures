@@ -4,25 +4,44 @@
 #include <cmath>
 
 namespace {
-    // Tail spring-damper: a real damped spring per segment (mass=1) instead
-    // of a position lag — acceleration = stiffness*(target-pos) -
-    // damping*velocity - gravity, integrated with semi-implicit Euler. Unlike
-    // ExpLerp (which can only ease monotonically toward a target and can
-    // never overshoot), a real spring keeps swinging a little after the body
-    // stops moving and settles instead of just trailing behind — that's the
-    // actual "whip" quality a passive tail has that a pure lag can't produce.
-    // The tip's constants are softer/less damped than the mid segment's, so
-    // the very end of the tail is the whippiest part (mirrors the old
-    // kTailFollowSpeed*0.8 relationship, just via real dynamics now).
-    constexpr float kTailMidStiffness = 90.0f;
-    constexpr float kTailMidDamping = 12.0f;
-    constexpr float kTailTipStiffness = 40.0f;
-    constexpr float kTailTipDamping = 6.0f;
-    // Constant downward acceleration standing in for the tail's own weight —
-    // the spring settles wherever this balances against stiffness times
-    // displacement, so the droop emerges from the physics instead of being a
-    // baked-in offset (the old kTailDroopAmount, now removed).
-    constexpr float kTailGravity = 5.0f * kCreatureScale;
+    // Tail physics (Phase 10, step 2): the tail is now a 5-particle
+    // PhysicsBody (Pelvis pinned, TailSeg1-3, TailTip) solved by Physics.h's
+    // generic particle+constraint solver, instead of the hand-rolled
+    // force-spring this replaced. A single TailMid could only bend at one
+    // point — never more than a single V-shaped kink — so it never read as
+    // a real hanging curve the way the (5-particle) rope test did; 3
+    // intermediate joints let the sag distribute across several bends. The
+    // "muscle" targets below are soft pulls toward where the tail would
+    // rigidly be if it followed the body instantly — the solver's own
+    // inertia (Verlet integration carrying velocity between frames) is what
+    // makes the actual simulated position trail behind and overshoot/settle,
+    // not a hand-authored extra lag angle (the old tailSwingLag is gone;
+    // rearYawLag drives the target directly). Muscle rates decrease toward
+    // the tip, same declining relationship kChestFollowSpeed->kSpine1FollowSpeed
+    // has for the spine — the very end of the tail is the whippiest part.
+    constexpr float kTailSeg1MuscleRate = 8.0f;
+    constexpr float kTailSeg2MuscleRate = 6.0f;
+    constexpr float kTailSeg3MuscleRate = 4.0f;
+    constexpr float kTailTipMuscleRate = 2.5f;
+    // Bend limits at each tail joint: never fully doubles back on itself
+    // (min), but free to go fully straight (max = pi, acos's own natural
+    // ceiling).
+    constexpr float kTailMinBendAngle = glm::radians(70.0f);
+    constexpr float kTailMaxBendAngle = glm::pi<float>();
+    // Gravity per unit of the tail's own (rest-pose, already kCreatureScale-
+    // scaled) length, NOT a flat acceleration — a fixed absolute value made
+    // a short tail wiggle (the same gravity is a much bigger fraction of a
+    // short segment's own length, pushing it against the angle constraint's
+    // limit repeatedly instead of settling) while a long tail stayed stable,
+    // since the same push was proportionally tiny for it. Scaling by the
+    // tail's actual length keeps the relative sag consistent regardless of
+    // how long this particular creature's tail is. Much higher than it
+    // looks like it should need to be: unlike the free-hanging rope test
+    // (nothing opposes gravity there but the distance constraints), the
+    // tail's muscle pull is actively fighting gravity to hold a rigid
+    // posture, so gravity has to be strong enough to visibly win some of
+    // that fight, not just exist.
+    constexpr float kTailGravityPerUnitLength = 40.0f;
 
     // Spine bend chain, chest (front) to spine1 (nearest the hips): each
     // link chases the one in front of it, progressively slower — a genuine
@@ -48,10 +67,6 @@ namespace {
     // anatomically plausible (e.g. sustained fast circling) no matter what
     // input drives it.
     constexpr float kMaxJointBendAngle = glm::radians(40.0f);
-    // Slower than the hips themselves — a tail isn't rigidly attached like a
-    // leg, so it should visibly trail further behind a turn than the body
-    // that's dragging it.
-    constexpr float kTailSwingFollowSpeed = 1.4f;
 
     // kBobAmount/kMaxHeadLean are absolute world-unit offsets tuned for the
     // pre-kCreatureScale skeleton size — scaled down to match so they stay
@@ -107,7 +122,9 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     const glm::vec3 restNeckEnd = rest.joints[NeckEnd];
     const glm::vec3 restSnoutBase = rest.joints[SnoutBase];
     const glm::vec3 restHeadTip = rest.joints[HeadTip];
-    const glm::vec3 restTailMid = rest.joints[TailMid];
+    const glm::vec3 restTailSeg1 = rest.joints[TailSeg1];
+    const glm::vec3 restTailSeg2 = rest.joints[TailSeg2];
+    const glm::vec3 restTailSeg3 = rest.joints[TailSeg3];
     const glm::vec3 restTailTip = rest.joints[TailTip];
     const glm::vec3 restChestEnd = rest.joints[ChestEnd];
     const glm::vec3 pelvis = rest.joints[Pelvis]; // spine bend pivot — never itself moves
@@ -117,15 +134,41 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
         // neckEnd/headTip need no init of their own — they're computed
         // fresh every frame below, not eased from a starting value.
         state.headLean = glm::vec3(0.0f);
-        state.tailMid = restTailMid;
-        state.tailTip = restTailTip;
         state.rearYawLag = bodyYaw;
         state.chestAngleLag = 0.0f;
         state.spine3AngleLag = 0.0f;
         state.spine2AngleLag = 0.0f;
         state.spine1AngleLag = 0.0f;
-        state.tailSwingLag = bodyYaw;
         state.headAngleLag = 0.0f;
+
+        // Tail PhysicsBody: particle 0 = Pelvis (pinned, inverseMass 0),
+        // 1-3 = TailSeg1-3, 4 = TailTip. Rest lengths/positions come
+        // straight from the rest skeleton — no new authoring.
+        state.tailBody.particles = {
+            {pelvis, pelvis, 0.0f},
+            {restTailSeg1, restTailSeg1, 1.0f},
+            {restTailSeg2, restTailSeg2, 1.0f},
+            {restTailSeg3, restTailSeg3, 1.0f},
+            {restTailTip, restTailTip, 1.0f},
+        };
+        state.tailBody.distanceConstraints = {
+            {0, 1, glm::length(restTailSeg1 - pelvis)},
+            {1, 2, glm::length(restTailSeg2 - restTailSeg1)},
+            {2, 3, glm::length(restTailSeg3 - restTailSeg2)},
+            {3, 4, glm::length(restTailTip - restTailSeg3)},
+        };
+        state.tailBody.angleConstraints = {
+            {0, 1, 2, kTailMinBendAngle, kTailMaxBendAngle},
+            {1, 2, 3, kTailMinBendAngle, kTailMaxBendAngle},
+            {2, 3, 4, kTailMinBendAngle, kTailMaxBendAngle},
+        };
+        state.tailBody.muscleTargets = {
+            {1, restTailSeg1, kTailSeg1MuscleRate},
+            {2, restTailSeg2, kTailSeg2MuscleRate},
+            {3, restTailSeg3, kTailSeg3MuscleRate},
+            {4, restTailTip, kTailTipMuscleRate},
+        };
+
         state.initialized = true;
     }
 
@@ -161,9 +204,8 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     // A small idle bob/sway "leader" signal the neck/tail chains chase with a
     // delay — this is what makes a creature that never moves still read as
     // breathing/alive, per CLAUDE.md's Phase 6 goal. The tail's own downward
-    // droop is no longer baked in here — it now comes from kTailGravity
-    // acting on the spring below — and it still gets its own extra swing lag
-    // (below) since it's a continuation of the spine, not a rigid stub.
+    // droop isn't baked in here at all — it comes from kTailGravityPerUnitLength
+    // acting on the tailBody physics below.
     glm::vec3 neckBob(0.0f, sinf(time * kBobSpeed) * kBobAmount, sinf(time * kBobSpeed * 0.5f) * kBobAmount * 0.5f);
     glm::vec3 tailBob(0.0f, sinf(time * kBobSpeed + 1.0f) * kBobAmount, 0.0f);
 
@@ -207,35 +249,56 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     state.headLean = ExpLerp(state.headLean, leanTarget, kLookAtSpeed, dt);
     state.headTip = headTipRigid + state.headLean;
 
-    // Tail swing: lags rearYawLag itself, so during a turn the tail visibly
-    // trails further behind than the hips do — real tail whip, not just
-    // being dragged along rigidly by the body.
-    state.tailSwingLag = ExpLerpAngle(state.tailSwingLag, state.rearYawLag, kTailSwingFollowSpeed, dt);
-    float tailSwingAngle = WrapAngle(state.rearYawLag - state.tailSwingLag);
+    // Tail: muscle targets are where each segment would rigidly be if the
+    // tail followed the pelvis's current (already-lagged) orientation
+    // instantly — rearYawLag directly, no separate hand-tuned extra lag
+    // angle needed anymore. Each segment's target chains off the previous
+    // segment's own simulated (already physically lagging) position from
+    // the previous solve, same "each link reacts to the one before it"
+    // pattern the spine bend chain above uses — one-frame-delayed,
+    // imperceptible at frame rate.
+    // Rest lengths refreshed every frame, not just at init — the skeleton
+    // is rebuilt from currentDNA every frame (main.cpp) so live-editing
+    // tailLength reshapes the rest pose immediately, but the distance
+    // constraints wouldn't know that on their own: they'd keep enforcing
+    // whatever length existed when tailBody was first built, fighting the
+    // (correctly updated) muscle targets every frame instead of tracking
+    // the new length — that fight is what made shortening the tail look
+    // like it was "going crazy" instead of just getting shorter.
+    state.tailBody.distanceConstraints[0].restLength = glm::length(restTailSeg1 - tailBase);
+    state.tailBody.distanceConstraints[1].restLength = glm::length(restTailSeg2 - restTailSeg1);
+    state.tailBody.distanceConstraints[2].restLength = glm::length(restTailSeg3 - restTailSeg2);
+    state.tailBody.distanceConstraints[3].restLength = glm::length(restTailTip - restTailSeg3);
 
-    // Real damped spring per segment (mass=1, semi-implicit Euler: velocity
-    // updates from the current position error first, then position updates
-    // from the new velocity — stable and standard for spring integration).
-    // tailTip's target chains off tailMid's PREVIOUS (not yet updated this
-    // frame) position, same "each link reacts to the one before it" pattern
-    // the spine bend chain above uses.
-    glm::vec3 tailMidTarget = tailLeader + RotateVectorAroundY(restTailMid - tailBase, tailSwingAngle);
-    glm::vec3 tailMidAccel = kTailMidStiffness * (tailMidTarget - state.tailMid) - kTailMidDamping * state.tailMidVelocity;
-    tailMidAccel.y -= kTailGravity;
-    state.tailMidVelocity += tailMidAccel * dt;
-    state.tailMid += state.tailMidVelocity * dt;
+    state.tailBody.particles[0].position = tailBase; // pelvis pin, kept explicit
+    state.tailBody.muscleTargets[0].target = tailLeader + RotateVectorAroundY(restTailSeg1 - tailBase, state.rearYawLag);
+    state.tailBody.muscleTargets[1].target = state.tailBody.particles[1].position +
+                                              RotateVectorAroundY(restTailSeg2 - restTailSeg1, state.rearYawLag);
+    state.tailBody.muscleTargets[2].target = state.tailBody.particles[2].position +
+                                              RotateVectorAroundY(restTailSeg3 - restTailSeg2, state.rearYawLag);
+    state.tailBody.muscleTargets[3].target = state.tailBody.particles[3].position +
+                                              RotateVectorAroundY(restTailTip - restTailSeg3, state.rearYawLag);
 
-    glm::vec3 tailTipTarget = state.tailMid + RotateVectorAroundY(restTailTip - restTailMid, tailSwingAngle);
-    glm::vec3 tailTipAccel = kTailTipStiffness * (tailTipTarget - state.tailTip) - kTailTipDamping * state.tailTipVelocity;
-    tailTipAccel.y -= kTailGravity;
-    state.tailTipVelocity += tailTipAccel * dt;
-    state.tailTip += state.tailTipVelocity * dt;
+    float tailTotalLength = glm::length(restTailSeg1 - tailBase) + glm::length(restTailSeg2 - restTailSeg1) +
+                             glm::length(restTailSeg3 - restTailSeg2) + glm::length(restTailTip - restTailSeg3);
+    float tailGravity = kTailGravityPerUnitLength * tailTotalLength;
+    StepPhysics(state.tailBody, dt, glm::vec3(0.0f, -tailGravity, 0.0f));
 
+    // The physics above runs with muscle targets rotated by rearYawLag so
+    // inertia has something real to react to (like the rope test's moving
+    // anchor) — but main.cpp's outer bodyTransform ALSO rotates the whole
+    // local skeleton by rearYawLag when rendering. Storing the raw physics
+    // result would rotate by rearYawLag twice (a 90° turn spinning the tail
+    // by 180° — the "se da la vuelta" bug), so undo that same rotation here;
+    // the outer transform re-applies it once, correctly, recovering the
+    // genuine (lagging) world result.
     animated.joints[NeckEnd] = state.neckEnd;
     animated.joints[SnoutBase] = snoutBaseRigid;
     animated.joints[HeadTip] = state.headTip;
-    animated.joints[TailMid] = state.tailMid;
-    animated.joints[TailTip] = state.tailTip;
+    animated.joints[TailSeg1] = RotateAroundY(state.tailBody.particles[1].position, tailBase, -state.rearYawLag);
+    animated.joints[TailSeg2] = RotateAroundY(state.tailBody.particles[2].position, tailBase, -state.rearYawLag);
+    animated.joints[TailSeg3] = RotateAroundY(state.tailBody.particles[3].position, tailBase, -state.rearYawLag);
+    animated.joints[TailTip] = RotateAroundY(state.tailBody.particles[4].position, tailBase, -state.rearYawLag);
 
     // Horns/ears/eyes: rotate their rest-pose offset from SnoutBase (the
     // cranium, where they actually attach — see Skeleton.cpp) by however

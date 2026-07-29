@@ -155,18 +155,33 @@ Capturas reales descargadas de la ficha de Steam (`store.steampowered.com/app/27
 
 Sigue abierta para el lado visual/ADN — no hay más pendientes concretos anotados ahí. Pero la fase no se cierra formalmente hasta que el usuario confirme que las criaturas se ven y se mueven bien, y eso ahora incluye explícitamente la reacción física real (Fase 10 de abajo), no solo el alcance visual/cinemático de esta fase. Ver `docs/DEVELOPMENT_PLAN.md`.
 
-## Fase 10 — Simulación física del cuerpo (planificada, sin empezar)
+## Fase 10 — Simulación física del cuerpo (en curso, rama `phase-10`)
 
-Sustituye el IK analítico (`IK.cpp`, para el posado en vivo) y las cadenas de retraso de `Animation.cpp` por un solver de física de partículas y restricciones — ADN, `BuildSkeleton` (jerarquía + pose de reposo) y `Gait.cpp` (objetivo de marcha) se reutilizan sin cambios. Decidido 29/07/2026: el usuario quiere que las criaturas interactúen físicamente de verdad entre sí (un tigre agarrando/derribando a un ciervo, con el peso/fuerza de una afectando de verdad el equilibrio de la otra) — un sistema puramente cinemático no puede expresar eso, porque el IK no tiene noción de fuerza, masa, ni "quién gana un forcejeo", solo coloca una posición exacta sin resistencia. Referencia técnica: Rain World (cuerpos = cadenas de partículas con masa conectadas por restricciones de distancia/ángulo, resueltas con integración de Verlet + relajación iterativa; "músculos" procedurales que aplican una fuerza hacia una pose objetivo en vez de fijar la posición directamente). Ver el diseño detallado en "Decisiones de arquitectura" arriba.
+Sustituye el IK analítico (`IK.cpp`, para el posado en vivo) y las cadenas de retraso de `Animation.cpp` por un solver de física de partículas y restricciones — ADN, `BuildSkeleton` (jerarquía + pose de reposo) y `Gait.cpp` (objetivo de marcha) se reutilizan sin cambios. Decidido 29/07/2026: el usuario quiere que las criaturas interactúen físicamente de verdad entre sí (un tigre agarrando/derribando a un ciervo, con el peso/fuerza de una afectando de verdad el equilibrio de la otra) — un sistema puramente cinemático no puede expresar eso, porque el IK no tiene noción de fuerza, masa, ni "quién gana un forcejeo", solo coloca una posición exacta sin resistencia. Referencia técnica: Rain World (cuerpos = cadenas de partículas con masa conectadas por restricciones de distancia/ángulo, resueltas con integración de Verlet + relajación iterativa; "músculos" procedurales que aplican una fuerza hacia una pose objetivo en vez de fijar la posición directamente). `main` se queda con el sistema cinemático actual intacto hasta que esta rama demuestre ser mejor, no solo distinta.
 
-- [ ] Partículas: cada joint existente gana una posición anterior (Verlet, sin variable de velocidad aparte) y una masa
-- [ ] Restricciones de distancia: cada bone existente (`Skeleton::bones`) se convierte en una restricción de longitud, con la longitud de reposo sacada de `BuildSkeleton` sin cambios
-- [ ] Restricciones de ángulo: límites de flexión entre huesos consecutivos que comparten un joint, derivados genéricamente recorriendo el grafo de huesos
-- [ ] Músculos: una fuerza pequeña tirando de cada joint hacia su objetivo (pose de reposo del ADN + objetivo de `Gait.cpp` + dirección de movimiento) — mismo principio que el resorte de la cola de la Fase 9
-- [ ] Contacto con el suelo: el pie no puede bajar de `TerrainHeight(x,z)`, resuelto en la misma pasada de relajación que el resto
-- [ ] Bucle por frame: integración de Verlet (fuerzas → posición predicha) + varias pasadas (4-8) de relajación sobre todas las restricciones
+Hecho hasta ahora:
+- **Paso 1 — solver aislado** (`Physics.h`/`.cpp`): partículas (posición + posición anterior al estilo Verlet, sin variable de velocidad aparte, + masa), restricciones de distancia, restricciones de ángulo, "músculos" (tirón blando hacia un objetivo), y contacto con el suelo. Verificado con una cadena de prueba de 6 partículas colgando de un punto que oscila, dibujada con el shader de líneas de depuración (checkbox "Show rope physics test" en el panel) — confirmado por el usuario antes de tocar nada de la criatura.
+- **Paso 2 — la cola como cuerpo físico** (`Animation.cpp`): la cola pasó del resorte-amortiguador a mano (Fase 9) a un `PhysicsBody` genérico de 5 partículas (Pelvis anclado + 4 tramos, ver más abajo). Seis bugs reales aparecieron y se corrigieron solo gracias a que el usuario probó la app en cada paso, no por revisión de código:
+  - Signo invertido en la restricción de ángulo (enderezaba la cola en la dirección contraria a la esperada).
+  - El "músculo" se aplicaba una vez por *iteración* de relajación (8 veces por frame) en vez de una vez por *frame* escalado por `dt` — convergía casi al instante sin importar la velocidad de giro, dando el aspecto de aguja rígida.
+  - Doble conteo de la rotación del cuerpo: la física corría en el mismo espacio local que luego rota `bodyTransform` en `main.cpp`, así que un giro real de 90° se aplicaba dos veces (180°, "se da la vuelta"). Arreglado deshaciendo esa rotación antes de guardar el resultado en el esqueleto.
+  - Solo 2 tramos (Pelvis→TailMid→TailTip) no dejaban curvar la cola, solo doblarse en un único punto — ampliado a 4 vértebras (`TailSeg1/2/3` + `TailTip`, mismo patrón que `SpineSeg1/2/3`).
+  - Sin amortiguación de velocidad en la integración de Verlet, la cola oscilaba indefinidamente en vez de asentarse — añadida amortiguación (`StepPhysics` ahora tiene un parámetro `damping`).
+  - La gravedad era una aceleración absoluta fija — la misma gravedad es una fracción mucho mayor de un segmento corto que de uno largo, así que colas cortas vibraban contra el límite de la restricción de ángulo mientras las largas se veían bien. Ahora la gravedad escala con la longitud real de la cola de cada criatura (`kTailGravityPerUnitLength`).
+  - Las restricciones de distancia se fijaban una sola vez al construir el cuerpo físico — editar `tailLength` en vivo desde el panel no hacía nada (o rompía la simulación al acortar), porque la restricción seguía imponiendo la longitud vieja. Ahora se refrescan cada frame, igual que el resto del esqueleto ya se reconstruye desde el ADN actual.
+  - Confirmado por el usuario tras esta ronda de arreglos: "ha quedado excelente".
+
+Diseño del solver (partículas/restricciones/músculos/contacto):
+- [x] Partículas: cada joint existente gana una posición anterior (Verlet, sin variable de velocidad aparte) y una masa
+- [x] Restricciones de distancia: cada bone existente (`Skeleton::bones`) se convierte en una restricción de longitud, con la longitud de reposo sacada de `BuildSkeleton` sin cambios
+- [x] Restricciones de ángulo: límites de flexión entre huesos consecutivos que comparten un joint, derivados genéricamente recorriendo el grafo de huesos
+- [x] Músculos: una fuerza pequeña tirando de cada joint hacia su objetivo (pose de reposo del ADN + objetivo de `Gait.cpp` + dirección de movimiento) — probado en la cola, pendiente en columna/cuello/cabeza (Fase 10, Paso 3) y patas (Paso 4)
+- [ ] Contacto con el suelo: el pie no puede bajar de `TerrainHeight(x,z)`, resuelto en la misma pasada de relajación que el resto — el `GroundConstraint` ya existe en `Physics.h` pero solo lo usa el Paso 1 de prueba, no las patas todavía
+- [x] Bucle por frame: integración de Verlet (fuerzas → posición predicha) + varias pasadas (4-8) de relajación sobre todas las restricciones
 
 Aplicable a cualquier topología de esqueleto por construcción — el solver no referencia joints por nombre, solo un grafo genérico de partículas+restricciones — a diferencia de `Animation.cpp` actual, que sí referencia joints por nombre concreto y no generalizaría a un plan corporal nuevo sin reescritura considerable. Es una base más sólida de cara a futuros planes corporales (serpientes, voladores) además de ser la única vía para lograr interacción física real entre criaturas. **Bloquea el cruce genético igual que la Fase 9 — no es trabajo adyacente al cruce, es un requisito previo.**
+
+Pendiente: Paso 3 (columna+cuello+cabeza como cadena física), Paso 4 (patas con contacto de suelo), Paso 5 (integración completa + comparación lado a lado contra `main`).
 
 ## Fase 11 — Guardar/cargar ADN (planificada, sin empezar)
 

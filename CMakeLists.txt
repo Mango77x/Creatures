@@ -81,6 +81,7 @@ add_executable(Creatures
     src/IK.cpp
     src/Gait.cpp
     src/Terrain.cpp
+    src/Physics.cpp
 )
 
 target_link_libraries(Creatures PRIVATE

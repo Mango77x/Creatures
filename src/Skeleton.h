@@ -27,7 +27,13 @@ enum SkeletonJoint {
     // (SnoutBase->HeadTip) — see BuildSkeleton. Horns/ears/eyes anchor here,
     // not at HeadTip (the nose tip), since that's where they actually sit on
     // a real skull.
-    Pelvis, ChestEnd, NeckEnd, SnoutBase, HeadTip, TailMid, TailTip,
+    // TailSeg1/2/3 (Phase 10, step 2 follow-up): a dog's tail has far more
+    // than 2 vertebrae — the old single TailMid could only bend at one
+    // point, so gravity/physics could never produce more than a single
+    // V-shaped kink, never a real hanging curve. 3 intermediate joints let
+    // the sag distribute across several bends, same reasoning as the
+    // spine's own segmentation below.
+    Pelvis, ChestEnd, NeckEnd, SnoutBase, HeadTip, TailSeg1, TailSeg2, TailSeg3, TailTip,
     FrontLeftHip, FrontLeftKnee, FrontLeftFoot,
     FrontRightHip, FrontRightKnee, FrontRightFoot,
     BackLeftHip, BackLeftKnee, BackLeftFoot,
