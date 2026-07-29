@@ -6,6 +6,34 @@ One `phase-N` branch per phase, opened as a PR against `main`, merged by the mai
 
 Full context, architecture decisions, and non-goals live in the project's `CLAUDE.md` — this doc tracks execution status only.
 
+## Dev environment setup (per-machine, not in the repo)
+
+None of this ships with the repo — it's machine-specific and needs setting up once on any new machine before building.
+
+- **Git** and **Python 3** (with the `jinja2` package — `pip install jinja2` — used by GLAD's codegen at configure time).
+- **CMake** (≥3.20).
+- **C++20 compiler: MinGW-w64 (WinLibs), not Visual Studio** — explicit user preference (too heavy for a VS Code workflow). On Windows:
+  ```bash
+  winget install --id Kitware.CMake -e --source winget
+  winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --source winget
+  ```
+  After installing, prepend WinLibs' `mingw64\bin` and CMake's `bin` to the terminal session's `PATH` — the system PATH env var doesn't propagate to an already-running parent process until it restarts.
+
+Configure and build:
+```bash
+cmake -S . -B build -G "Ninja"
+cmake --build build
+```
+The executable lands at `build/Creatures.exe`.
+
+**Git identity** (local to each clone — not inherited from the repo):
+```bash
+git config user.name "Mango77x"
+git config user.email "antoinegizpa@gmail.com"
+```
+
+**Current state**: `phase-10` branch, Phase 10 steps 1-2 done and user-confirmed (particle+constraint solver + tail as a PhysicsBody), steps 3-5 (spine/neck/head, legs, full integration) not started — see the "Phase 10" section below for full detail. `main` still has the pre-Phase-10 kinematic system, untouched.
+
 ## Phase 1 — Window + orbital camera (done)
 
 - [x] CMake project (C++20/23) with GLFW, GLAD, GLM, Dear ImGui, stb_image via FetchContent
