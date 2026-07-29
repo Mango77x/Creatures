@@ -43,30 +43,48 @@ namespace {
     // that fight, not just exist.
     constexpr float kTailGravityPerUnitLength = 40.0f;
 
-    // Spine bend chain, chest (front) to spine1 (nearest the hips): each
-    // link chases the one in front of it, progressively slower — a genuine
-    // wave propagating back through the body instead of one global angle
-    // reflected instantly at the chest. kChestFollowSpeed used to effectively
-    // be "infinite" (raw, unsmoothed bodyYaw) — even the most responsive
-    // part of a real animal can't redirect in zero time, which is what made
-    // sharp turns look like the chest teleporting toward the mouse.
-    constexpr float kRearFollowSpeed = 2.0f;   // hips / global transform — slowest
-    constexpr float kChestFollowSpeed = 5.0f;
-    constexpr float kSpine3FollowSpeed = 4.0f;
-    constexpr float kSpine2FollowSpeed = 3.2f;
-    constexpr float kSpine1FollowSpeed = 2.6f;
-    // Faster than kChestFollowSpeed on purpose, and NOT chained off it — a
-    // real animal's head/neck lead a turn (looking where it's going before
-    // the shoulders catch up), so the neck shouldn't inherit the chest's own
-    // lag on top of its own; that compounding was what made long necks read
-    // as heavy and sluggish instead of alert.
-    constexpr float kHeadFollowSpeed = 14.0f;
-    // Hard safety clamp on each link's bend angle, independent of how it got
-    // there — main.cpp bounds bodyYaw's own turn rate so this should rarely
-    // bind, but it guarantees the spine can never wind past what's
-    // anatomically plausible (e.g. sustained fast circling) no matter what
-    // input drives it.
-    constexpr float kMaxJointBendAngle = glm::radians(40.0f);
+    constexpr float kRearFollowSpeed = 2.0f;   // hips / global transform — slowest of all, still hand-eased
+
+    // Spine/neck/head physics (Phase 10, step 3): replaces the old hand-
+    // chained ExpLerpAngle sequence (chestAngleLag->spine3->spine2->
+    // spine1AngleLag, and a separately-timed headAngleLag) with a PhysicsBody
+    // (state.spineBody) — same generic solver the tail already uses. Each
+    // particle gets its OWN muscle rate pulling toward the SAME kinematic
+    // target (the rest offset rotated by the full, immediate bodyYaw — see
+    // ApplyAnimation), rather than each link's target being hand-set to the
+    // previous link's already-lagged value. The "wave propagating back
+    // through the body" still happens — HeadTip reacts fastest, SpineSeg1
+    // (nearest the pelvis) slowest — but now it emerges from the solver's
+    // own inertia plus the rigid distance/angle constraints holding
+    // neighbours together, not from literally chaining targets. Rates keep
+    // the same relative ordering/values the old follow-speeds used.
+    constexpr float kSpine1MuscleRate = 2.6f;
+    constexpr float kSpine2MuscleRate = 3.2f;
+    constexpr float kSpine3MuscleRate = 4.0f;
+    constexpr float kChestMuscleRate = 5.0f;
+    // NeckEnd's rate steps up sharply past the chest's — a real animal's
+    // head/neck lead a turn (looking where it's going before the shoulders
+    // catch up). NeckEnd is the fastest/last particle in the chain — it
+    // stands in for the whole rigid skull's inertia too, since nothing past
+    // NeckEnd (SnoutBase, HeadTip, horns/ears/eyes) is separately simulated
+    // (see spineBody's comment in Animation.h).
+    constexpr float kNeckMuscleRate = 14.0f;
+    // Bend limits at each spine/neck joint. Two tiers: the spine itself
+    // (pivots SpineSeg1-3) stays fairly rigid per-joint — real vertebrae
+    // don't fold much individually, even though the whole spine's cumulative
+    // curve can be considerable. The chest/neck joint (pivot ChestEnd, i.e.
+    // how much the neck bone itself can angle away from the spine's own
+    // direction) gets a much more permissive limit, matching how flexible a
+    // real neck is compared to the torso.
+    constexpr float kSpineMinBendAngle = glm::radians(150.0f);
+    constexpr float kNeckMinBendAngle = glm::radians(90.0f);
+    constexpr float kSpineNeckMaxBendAngle = glm::pi<float>();
+    // Much weaker than the tail's kTailGravityPerUnitLength: a real spine/
+    // neck is actively held up by strong back/neck muscles (modelled here as
+    // the muscle targets above), not passively hanging — gravity should only
+    // read as a subtle droop, not the dominant force the way it is for the
+    // tail.
+    constexpr float kSpineGravityPerUnitLength = 6.0f;
 
     // kBobAmount/kMaxHeadLean are absolute world-unit offsets tuned for the
     // pre-kCreatureScale skeleton size — scaled down to match so they stay
@@ -113,12 +131,70 @@ namespace {
     glm::vec3 RotateAroundY(const glm::vec3& point, const glm::vec3& pivot, float angle) {
         return pivot + RotateVectorAroundY(point - pivot, angle);
     }
+
+    // Rotates `v` around an arbitrary unit `axis` by `angleRad` (Rodrigues'
+    // rotation formula) — the general 3D version of RotateVectorAroundY
+    // above, needed for the head's rigid attachments (see
+    // RotateVectorShortestArc): a real skull can pitch up/down as well as
+    // yaw, so a Y-only rotation can't correctly carry it.
+    glm::vec3 RotateAroundAxisGeneric(const glm::vec3& v, const glm::vec3& axis, float angleRad) {
+        float c = cosf(angleRad);
+        float s = sinf(angleRad);
+        return v * c + glm::cross(axis, v) * s + axis * glm::dot(axis, v) * (1.0f - c);
+    }
+
+    // Rotates `v` by whatever rotation takes unit vector `fromDir` to unit
+    // vector `toDir` (shortest arc) — used to carry the head's rigid
+    // attachments (HeadTip, horns, ears, eyes) along with wherever the
+    // NeckEnd->SnoutBase segment is ACTUALLY pointing after physics, in full
+    // 3D. Two earlier attempts tracked a single hand-eased Y-axis angle
+    // instead (headAngleLag) — that can only ever represent a turn, not a
+    // segment that also pitches up/down, which is exactly what happens with
+    // a steep neckPitch or a taller/shorter body: the snout would tip the
+    // wrong way or wobble because a 1D angle was being asked to stand in for
+    // a genuinely 3D rotation. This has no separate state or hand-tuned lag
+    // of its own — NeckEnd/SnoutBase already carry the physics chain's own
+    // lag/inertia, so deriving directly from their real positions inherits
+    // that for free instead of re-approximating it.
+    glm::vec3 RotateVectorShortestArc(const glm::vec3& v, const glm::vec3& fromDir, const glm::vec3& toDir) {
+        glm::vec3 axis = glm::cross(fromDir, toDir);
+        float axisLen = glm::length(axis);
+        float cosAngle = glm::clamp(glm::dot(fromDir, toDir), -1.0f, 1.0f);
+        if (axisLen < 1e-6f) {
+            if (cosAngle > 0.0f) return v; // already aligned, no rotation needed
+            // fromDir/toDir point exactly opposite (180 degrees) — cross
+            // product gives no usable axis, so pick any vector not parallel
+            // to fromDir and use the perpendicular between them instead.
+            glm::vec3 fallback = (fabsf(fromDir.x) < 0.9f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 perp = glm::normalize(glm::cross(fromDir, fallback));
+            return RotateAroundAxisGeneric(v, perp, glm::pi<float>());
+        }
+        axis /= axisLen;
+        float angle = acosf(cosAngle);
+        return RotateAroundAxisGeneric(v, axis, angle);
+    }
+
+    // Signed angle (radians) around Y such that RotateVectorAroundY(from,
+    // angle) ~= to (both projected onto XZ, ignoring any Y component) — used
+    // to turn spineBody's simulated ChestEnd position back into the single
+    // scalar angle main.cpp's front-hip/gait-target rotation still expects
+    // (chestAngleLag). Only safe for a mostly-horizontal segment (like the
+    // spine) — see RotateVectorShortestArc for why the head needed a full 3D
+    // rotation instead of this.
+    float SignedYAngleBetween(const glm::vec3& from, const glm::vec3& to) {
+        float crossY = from.z * to.x - from.x * to.z;
+        float dotXZ = from.x * to.x + from.z * to.z;
+        return atan2f(crossY, dotXZ);
+    }
 }
 
 Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time, float dt,
                          const glm::vec3& lookAtTarget, float bodyYaw) {
     Skeleton animated = rest;
 
+    const glm::vec3 restSpineSeg1 = rest.joints[SpineSeg1];
+    const glm::vec3 restSpineSeg2 = rest.joints[SpineSeg2];
+    const glm::vec3 restSpineSeg3 = rest.joints[SpineSeg3];
     const glm::vec3 restNeckEnd = rest.joints[NeckEnd];
     const glm::vec3 restSnoutBase = rest.joints[SnoutBase];
     const glm::vec3 restHeadTip = rest.joints[HeadTip];
@@ -131,15 +207,47 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     const glm::vec3 tailBase = pelvis;
 
     if (!state.initialized) {
-        // neckEnd/headTip need no init of their own — they're computed
-        // fresh every frame below, not eased from a starting value.
         state.headLean = glm::vec3(0.0f);
         state.rearYawLag = bodyYaw;
         state.chestAngleLag = 0.0f;
-        state.spine3AngleLag = 0.0f;
-        state.spine2AngleLag = 0.0f;
-        state.spine1AngleLag = 0.0f;
-        state.headAngleLag = 0.0f;
+
+        // Spine/neck PhysicsBody: particle 0 = Pelvis (pinned, inverseMass
+        // 0), 1-3 = SpineSeg1-3, 4 = ChestEnd, 5 = NeckEnd. No SnoutBase/
+        // HeadTip particle — see spineBody's comment in Animation.h. Rest
+        // lengths/positions come straight from the rest skeleton — no new
+        // authoring.
+        state.spineBody.particles = {
+            {pelvis, pelvis, 0.0f},
+            {restSpineSeg1, restSpineSeg1, 1.0f},
+            {restSpineSeg2, restSpineSeg2, 1.0f},
+            {restSpineSeg3, restSpineSeg3, 1.0f},
+            {restChestEnd, restChestEnd, 1.0f},
+            {restNeckEnd, restNeckEnd, 1.0f},
+        };
+        state.spineBody.distanceConstraints = {
+            {0, 1, glm::length(restSpineSeg1 - pelvis)},
+            {1, 2, glm::length(restSpineSeg2 - restSpineSeg1)},
+            {2, 3, glm::length(restSpineSeg3 - restSpineSeg2)},
+            {3, 4, glm::length(restChestEnd - restSpineSeg3)},
+            {4, 5, glm::length(restNeckEnd - restChestEnd)},
+        };
+        // Pivot ChestEnd (between the spine's own last segment and the neck
+        // bone) gets the permissive neck limit — that's the joint that
+        // represents how much the neck itself can angle away from the
+        // spine, which is where real neck flexibility actually lives.
+        state.spineBody.angleConstraints = {
+            {0, 1, 2, kSpineMinBendAngle, kSpineNeckMaxBendAngle},
+            {1, 2, 3, kSpineMinBendAngle, kSpineNeckMaxBendAngle},
+            {2, 3, 4, kSpineMinBendAngle, kSpineNeckMaxBendAngle},
+            {3, 4, 5, kNeckMinBendAngle, kSpineNeckMaxBendAngle},
+        };
+        state.spineBody.muscleTargets = {
+            {1, restSpineSeg1, kSpine1MuscleRate},
+            {2, restSpineSeg2, kSpine2MuscleRate},
+            {3, restSpineSeg3, kSpine3MuscleRate},
+            {4, restChestEnd, kChestMuscleRate},
+            {5, restNeckEnd, kNeckMuscleRate},
+        };
 
         // Tail PhysicsBody: particle 0 = Pelvis (pinned, inverseMass 0),
         // 1-3 = TailSeg1-3, 4 = TailTip. Rest lengths/positions come
@@ -173,90 +281,121 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     }
 
     // Hips / global transform (see main.cpp's bodyTransform) — lags bodyYaw
-    // slowest of the whole chain.
+    // slowest of the whole chain, still hand-eased (nothing in spineBody
+    // drives the pelvis itself).
     state.rearYawLag = ExpLerpAngle(state.rearYawLag, bodyYaw, kRearFollowSpeed, dt);
 
-    // Spine bend chain: each link chases the (already updated this frame)
-    // link in front of it, at its own speed, instead of one global angle
-    // applied fully at the chest. This is what fixes sharp turns looking
-    // like the chest teleporting toward the mouse — the chest itself now
-    // has real inertia (kChestFollowSpeed), it just has less than the rest
-    // of the spine.
-    float chestBendTarget = WrapAngle(bodyYaw - state.rearYawLag);
-    state.chestAngleLag = ExpLerpAngle(state.chestAngleLag, chestBendTarget, kChestFollowSpeed, dt);
-    state.spine3AngleLag = ExpLerpAngle(state.spine3AngleLag, state.chestAngleLag, kSpine3FollowSpeed, dt);
-    state.spine2AngleLag = ExpLerpAngle(state.spine2AngleLag, state.spine3AngleLag, kSpine2FollowSpeed, dt);
-    state.spine1AngleLag = ExpLerpAngle(state.spine1AngleLag, state.spine2AngleLag, kSpine1FollowSpeed, dt);
-
-    state.chestAngleLag = glm::clamp(state.chestAngleLag, -kMaxJointBendAngle, kMaxJointBendAngle);
-    state.spine3AngleLag = glm::clamp(state.spine3AngleLag, -kMaxJointBendAngle, kMaxJointBendAngle);
-    state.spine2AngleLag = glm::clamp(state.spine2AngleLag, -kMaxJointBendAngle, kMaxJointBendAngle);
-    state.spine1AngleLag = glm::clamp(state.spine1AngleLag, -kMaxJointBendAngle, kMaxJointBendAngle);
-
-    glm::vec3 bentChestEnd = RotateAroundY(restChestEnd, pelvis, state.chestAngleLag);
-    animated.joints[SpineSeg3] = RotateAroundY(rest.joints[SpineSeg3], pelvis, state.spine3AngleLag);
-    animated.joints[SpineSeg2] = RotateAroundY(rest.joints[SpineSeg2], pelvis, state.spine2AngleLag);
-    animated.joints[SpineSeg1] = RotateAroundY(rest.joints[SpineSeg1], pelvis, state.spine1AngleLag);
-    animated.joints[ChestEnd] = bentChestEnd;
-    animated.joints[FrontLeftHip] = RotateAroundY(rest.joints[FrontLeftHip], pelvis, state.chestAngleLag);
-    animated.joints[FrontRightHip] = RotateAroundY(rest.joints[FrontRightHip], pelvis, state.chestAngleLag);
+    // Refresh rest lengths every frame — same reasoning as tailBody just
+    // below: the skeleton is rebuilt from currentDNA every frame, so live-
+    // editing e.g. bodyLength/neckLength/headLength must reshape the chain
+    // immediately instead of fighting stale rest lengths from whenever
+    // spineBody was first built.
+    state.spineBody.distanceConstraints[0].restLength = glm::length(restSpineSeg1 - pelvis);
+    state.spineBody.distanceConstraints[1].restLength = glm::length(restSpineSeg2 - restSpineSeg1);
+    state.spineBody.distanceConstraints[2].restLength = glm::length(restSpineSeg3 - restSpineSeg2);
+    state.spineBody.distanceConstraints[3].restLength = glm::length(restChestEnd - restSpineSeg3);
+    state.spineBody.distanceConstraints[4].restLength = glm::length(restNeckEnd - restChestEnd);
 
     // A small idle bob/sway "leader" signal the neck/tail chains chase with a
     // delay — this is what makes a creature that never moves still read as
-    // breathing/alive, per CLAUDE.md's Phase 6 goal. The tail's own downward
-    // droop isn't baked in here at all — it comes from kTailGravityPerUnitLength
-    // acting on the tailBody physics below.
+    // breathing/alive, per CLAUDE.md's Phase 6 goal. Only the neck/head
+    // targets get it below (matching the old neckLeader), not the spine
+    // segments/chest. The tail's own downward droop isn't baked in here at
+    // all — it comes from kTailGravityPerUnitLength acting on the tailBody
+    // physics below.
     glm::vec3 neckBob(0.0f, sinf(time * kBobSpeed) * kBobAmount, sinf(time * kBobSpeed * 0.5f) * kBobAmount * 0.5f);
     glm::vec3 tailBob(0.0f, sinf(time * kBobSpeed + 1.0f) * kBobAmount, 0.0f);
-
-    glm::vec3 neckLeader = bentChestEnd + neckBob; // rooted at the chest's actual (slower) position...
     glm::vec3 tailLeader = tailBase + tailBob;
 
-    // ...but the direction the neck extends in tracks the turn on its own,
-    // faster than the chest — see kHeadFollowSpeed.
-    state.headAngleLag = ExpLerpAngle(state.headAngleLag, chestBendTarget, kHeadFollowSpeed, dt);
-    state.headAngleLag = glm::clamp(state.headAngleLag, -kMaxJointBendAngle, kMaxJointBendAngle);
-    glm::vec3 bentNeckOffset = RotateVectorAroundY(restNeckEnd - restChestEnd, state.headAngleLag);
+    // Muscle targets: rotate each particle's rest offset from the pelvis by
+    // the FULL immediate bodyYaw — NOT rearYawLag, and NOT chained off a
+    // neighbour's own (already-lagged) target. This is what gives the
+    // solver a genuinely moving target to react to every frame (same
+    // reasoning as the tail's rearYawLag-rotated targets below), and it's
+    // what lets a fast muscle rate (NeckEnd) visibly lead a slow one
+    // (SpineSeg1) despite both chasing the "same" underlying turn. Results
+    // are un-rotated by rearYawLag (not bodyYaw) below — the gap left
+    // between the two reproduces the old kinematic system's equilibrium
+    // (chest/head lead the hips by bodyYaw-rearYawLag, not by the whole
+    // turn) while still letting the physics feel the turn happen in real
+    // time, exactly like the tail's own target-rotate/result-unrotate
+    // pattern just uses a different pair of angles.
+    state.spineBody.particles[0].position = pelvis; // pelvis pin, kept explicit
+    state.spineBody.muscleTargets[0].target = pelvis + RotateVectorAroundY(restSpineSeg1 - pelvis, bodyYaw);
+    state.spineBody.muscleTargets[1].target = pelvis + RotateVectorAroundY(restSpineSeg2 - pelvis, bodyYaw);
+    state.spineBody.muscleTargets[2].target = pelvis + RotateVectorAroundY(restSpineSeg3 - pelvis, bodyYaw);
+    state.spineBody.muscleTargets[3].target = pelvis + RotateVectorAroundY(restChestEnd - pelvis, bodyYaw);
+    state.spineBody.muscleTargets[4].target = pelvis + RotateVectorAroundY(restNeckEnd - pelvis, bodyYaw) + neckBob;
 
-    // neckEnd is computed fresh every frame — rigidly attached to the chest
-    // via headAngleLag, which already carries its own lag — instead of
-    // being independently eased toward a (constantly moving) target. That
-    // independent easing was the actual bug: two separately-lagged
-    // endpoints (neckEnd and headTip) chasing their targets at different
-    // rates meant the capsule between them stretched/twisted instead of
-    // staying a rigid shape.
-    state.neckEnd = neckLeader + bentNeckOffset;
+    float spineTotalLength = glm::length(restSpineSeg1 - pelvis) + glm::length(restSpineSeg2 - restSpineSeg1) +
+                              glm::length(restSpineSeg3 - restSpineSeg2) + glm::length(restChestEnd - restSpineSeg3) +
+                              glm::length(restNeckEnd - restChestEnd);
+    float spineGravity = kSpineGravityPerUnitLength * spineTotalLength;
+    StepPhysics(state.spineBody, dt, glm::vec3(0.0f, -spineGravity, 0.0f));
 
-    // Same fast headAngleLag, not a separate follow speed — otherwise the
-    // head would visibly kink back toward the unbent rest direction right
-    // where it meets the already-bent neck. Rigidly attached to neckEnd for
-    // the same reason neckEnd is rigidly attached to the chest. SnoutBase
-    // (cranium/snout boundary) chains in the same way before HeadTip — if it
-    // stayed at its rest position while NeckEnd/HeadTip rotated around it,
-    // the snout would visibly stretch/twist during a head turn exactly like
-    // the old neckEnd/headTip bug this same pattern already fixed.
-    glm::vec3 snoutBaseRigid = state.neckEnd + RotateVectorAroundY(restSnoutBase - restNeckEnd, state.headAngleLag);
-    glm::vec3 headTipRigid = snoutBaseRigid + RotateVectorAroundY(restHeadTip - restSnoutBase, state.headAngleLag);
+    // Un-rotate by rearYawLag before use — see the muscle-target comment
+    // above and the tail's identical pattern below. main.cpp's outer
+    // bodyTransform re-applies rearYawLag once at render time.
+    glm::vec3 spineSeg1Final = RotateAroundY(state.spineBody.particles[1].position, pelvis, -state.rearYawLag);
+    glm::vec3 spineSeg2Final = RotateAroundY(state.spineBody.particles[2].position, pelvis, -state.rearYawLag);
+    glm::vec3 spineSeg3Final = RotateAroundY(state.spineBody.particles[3].position, pelvis, -state.rearYawLag);
+    glm::vec3 chestEndFinal = RotateAroundY(state.spineBody.particles[4].position, pelvis, -state.rearYawLag);
+    glm::vec3 neckEndFinal = RotateAroundY(state.spineBody.particles[5].position, pelvis, -state.rearYawLag);
+
+    animated.joints[SpineSeg1] = spineSeg1Final;
+    animated.joints[SpineSeg2] = spineSeg2Final;
+    animated.joints[SpineSeg3] = spineSeg3Final;
+    animated.joints[ChestEnd] = chestEndFinal;
+
+    // chestAngleLag: still derived from spineBody's actual simulated
+    // ChestEnd position (relative to the pelvis) — see the fields' comment
+    // in Animation.h. Has to track the real physics result, not a hand-eased
+    // approximation, because main.cpp's front-hip/gait-target rotation below
+    // needs the front legs to stay glued to wherever the chest ACTUALLY is;
+    // a mismatch there is exactly the "floating leg" bug Phase 9 fixed.
+    state.chestAngleLag = SignedYAngleBetween(restChestEnd - pelvis, chestEndFinal - pelvis);
+
+    // The whole skull (SnoutBase, HeadTip, horns, ears, eyes) is carried
+    // rigidly by the ACTUAL 3D rotation the neck bone itself (ChestEnd->
+    // NeckEnd) underwent — see RotateVectorShortestArc's comment above for
+    // why a single Y-axis angle (two earlier attempts) couldn't work, and
+    // spineBody's comment in Animation.h for why the skull starts exactly at
+    // NeckEnd instead of having its own extra flex joint. restNeckSegDir/
+    // finalNeckSegDir already fold in whatever lag/inertia the physics gave
+    // NeckEnd, so nothing extra needs to be tracked or eased by hand. Guarded
+    // against a near-zero-length neck (neckLength pushed to its minimum in
+    // the live DNA panel) — normalizing a near-zero vector would produce NaN.
+    glm::vec3 neckSegRest = restNeckEnd - restChestEnd;
+    glm::vec3 neckSegFinal = neckEndFinal - chestEndFinal;
+    glm::vec3 restNeckSegDir = glm::length(neckSegRest) > 1e-4f ? glm::normalize(neckSegRest) : glm::vec3(0.0f, 0.0f, 1.0f);
+    glm::vec3 finalNeckSegDir = glm::length(neckSegFinal) > 1e-4f ? glm::normalize(neckSegFinal) : restNeckSegDir;
+    glm::vec3 snoutBaseFinal = neckEndFinal + RotateVectorShortestArc(restSnoutBase - restNeckEnd, restNeckSegDir, finalNeckSegDir);
+    glm::vec3 headTipFinal = snoutBaseFinal + RotateVectorShortestArc(restHeadTip - restSnoutBase, restNeckSegDir, finalNeckSegDir);
+
+    animated.joints[FrontLeftHip] = RotateAroundY(rest.joints[FrontLeftHip], pelvis, state.chestAngleLag);
+    animated.joints[FrontRightHip] = RotateAroundY(rest.joints[FrontRightHip], pelvis, state.chestAngleLag);
 
     // Only the look-at glance gets its own lag, as a small offset layered on
     // top of the otherwise-rigid head — lagging a small nudge can't stretch
-    // anything, unlike lagging the head's whole position could.
-    glm::vec3 leanTarget = lookAtTarget - headTipRigid;
+    // anything, unlike lagging the head's whole position could. Applied on
+    // top of headTipFinal only for the render position (below); horns/ears
+    // /eyes above are rotated from headTipFinal's own un-leaned direction,
+    // so a glance can't subtly rotate them.
+    glm::vec3 leanTarget = lookAtTarget - headTipFinal;
     float leanLen = glm::length(leanTarget);
     if (leanLen > kMaxHeadLean && leanLen > 1e-5f) {
         leanTarget *= (kMaxHeadLean / leanLen);
     }
     state.headLean = ExpLerp(state.headLean, leanTarget, kLookAtSpeed, dt);
-    state.headTip = headTipRigid + state.headLean;
 
     // Tail: muscle targets are where each segment would rigidly be if the
     // tail followed the pelvis's current (already-lagged) orientation
     // instantly — rearYawLag directly, no separate hand-tuned extra lag
     // angle needed anymore. Each segment's target chains off the previous
     // segment's own simulated (already physically lagging) position from
-    // the previous solve, same "each link reacts to the one before it"
-    // pattern the spine bend chain above uses — one-frame-delayed,
-    // imperceptible at frame rate.
+    // the previous solve — one-frame-delayed, imperceptible at frame rate.
+    // (Unlike the tail, the spine/neck/head chain above targets everyone
+    // off the pelvis directly instead of chaining — see its own comment.)
     // Rest lengths refreshed every frame, not just at init — the skeleton
     // is rebuilt from currentDNA every frame (main.cpp) so live-editing
     // tailLength reshapes the rest pose immediately, but the distance
@@ -284,7 +423,7 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     float tailGravity = kTailGravityPerUnitLength * tailTotalLength;
     StepPhysics(state.tailBody, dt, glm::vec3(0.0f, -tailGravity, 0.0f));
 
-    // The physics above runs with muscle targets rotated by rearYawLag so
+    // The tail's physics runs with muscle targets rotated by rearYawLag so
     // inertia has something real to react to (like the rope test's moving
     // anchor) — but main.cpp's outer bodyTransform ALSO rotates the whole
     // local skeleton by rearYawLag when rendering. Storing the raw physics
@@ -292,27 +431,26 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     // by 180° — the "se da la vuelta" bug), so undo that same rotation here;
     // the outer transform re-applies it once, correctly, recovering the
     // genuine (lagging) world result.
-    animated.joints[NeckEnd] = state.neckEnd;
-    animated.joints[SnoutBase] = snoutBaseRigid;
-    animated.joints[HeadTip] = state.headTip;
+    animated.joints[NeckEnd] = neckEndFinal;
+    animated.joints[SnoutBase] = snoutBaseFinal;
+    animated.joints[HeadTip] = headTipFinal + state.headLean;
     animated.joints[TailSeg1] = RotateAroundY(state.tailBody.particles[1].position, tailBase, -state.rearYawLag);
     animated.joints[TailSeg2] = RotateAroundY(state.tailBody.particles[2].position, tailBase, -state.rearYawLag);
     animated.joints[TailSeg3] = RotateAroundY(state.tailBody.particles[3].position, tailBase, -state.rearYawLag);
     animated.joints[TailTip] = RotateAroundY(state.tailBody.particles[4].position, tailBase, -state.rearYawLag);
 
     // Horns/ears/eyes: rotate their rest-pose offset from SnoutBase (the
-    // cranium, where they actually attach — see Skeleton.cpp) by however
-    // much the head itself has bent (headAngleLag), THEN anchor at wherever
-    // the cranium currently is (snoutBaseRigid). A pure translation delta
-    // (the old approach) only approximates a small rotation — once turns
-    // bend the head by tens of degrees, translating alone visibly detaches
-    // them from the skull's actual surface, e.g. an eye still pointing the
-    // old direction while the head mesh underneath it has turned.
-    animated.joints[HornTip] = snoutBaseRigid + RotateVectorAroundY(rest.joints[HornTip] - restSnoutBase, state.headAngleLag);
-    animated.joints[LeftEarTip] = snoutBaseRigid + RotateVectorAroundY(rest.joints[LeftEarTip] - restSnoutBase, state.headAngleLag);
-    animated.joints[RightEarTip] = snoutBaseRigid + RotateVectorAroundY(rest.joints[RightEarTip] - restSnoutBase, state.headAngleLag);
-    animated.joints[LeftEye] = snoutBaseRigid + RotateVectorAroundY(rest.joints[LeftEye] - restSnoutBase, state.headAngleLag);
-    animated.joints[RightEye] = snoutBaseRigid + RotateVectorAroundY(rest.joints[RightEye] - restSnoutBase, state.headAngleLag);
+    // cranium, where they actually attach — see Skeleton.cpp) by the same
+    // real 3D rotation used for HeadTip above, THEN anchor at wherever the
+    // cranium currently is (snoutBaseFinal). A pure translation delta (the
+    // old approach, pre-Phase-10) only approximates a small rotation — once
+    // turns bend the head by tens of degrees, translating alone visibly
+    // detaches them from the skull's actual surface.
+    animated.joints[HornTip] = snoutBaseFinal + RotateVectorShortestArc(rest.joints[HornTip] - restSnoutBase, restNeckSegDir, finalNeckSegDir);
+    animated.joints[LeftEarTip] = snoutBaseFinal + RotateVectorShortestArc(rest.joints[LeftEarTip] - restSnoutBase, restNeckSegDir, finalNeckSegDir);
+    animated.joints[RightEarTip] = snoutBaseFinal + RotateVectorShortestArc(rest.joints[RightEarTip] - restSnoutBase, restNeckSegDir, finalNeckSegDir);
+    animated.joints[LeftEye] = snoutBaseFinal + RotateVectorShortestArc(rest.joints[LeftEye] - restSnoutBase, restNeckSegDir, finalNeckSegDir);
+    animated.joints[RightEye] = snoutBaseFinal + RotateVectorShortestArc(rest.joints[RightEye] - restSnoutBase, restNeckSegDir, finalNeckSegDir);
 
     state.breathScale = sinf(time * kBreathSpeed) * kBreathAmount;
 

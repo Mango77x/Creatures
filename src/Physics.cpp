@@ -38,6 +38,29 @@ namespace {
         return v * c + glm::cross(axis, v) * s + axis * glm::dot(axis, v) * (1.0f - c);
     }
 
+    // Below this length, a-pivot/c-pivot's direction is numerically
+    // unreliable (dividing an already-small, noisy vector by its own small
+    // magnitude amplifies that noise into the unit direction) — much larger
+    // than the old 1e-6f "truly coincident points" threshold, which never
+    // caught this. A short-but-legitimate bone (e.g. a creature with
+    // neckLength or bodyLength dialled down in the live DNA panel) can land
+    // exactly in that unstable gap: not degenerate enough to hit the old
+    // early-return, but short enough that dirA/dirC swing wildly frame to
+    // frame, computing a near-random rotation axis and a spurious large
+    // `error`. That correction gets applied to BOTH arms at the pivot,
+    // including a potentially long/stable one on the other side — this was
+    // the actual mechanism behind short-neck/short-body edits making the
+    // whole creature spin out ("se vuelve loco").
+    constexpr float kMinStableArmLength = 1e-3f;
+    // Hard ceiling on how much a single relaxation iteration may rotate
+    // either arm. Normal, well-conditioned corrections are already much
+    // smaller than this (they converge gradually over StepPhysics's several
+    // iterations); this only ever engages as a safety valve against a bad
+    // direction estimate (see kMinStableArmLength above) turning into an
+    // explosive single-step correction that compounds via Verlet's
+    // velocity carry-over into the next frame.
+    constexpr float kMaxAngleCorrectionPerIteration = 0.26f; // ~15 degrees
+
     void SolveAngleConstraint(std::vector<Particle>& particles, const AngleConstraint& c) {
         Particle& pa = particles[c.a];
         Particle& pp = particles[c.pivot];
@@ -47,7 +70,7 @@ namespace {
         glm::vec3 toC = pc.position - pp.position;
         float lenA = glm::length(toA);
         float lenC = glm::length(toC);
-        if (lenA < 1e-6f || lenC < 1e-6f) return;
+        if (lenA < kMinStableArmLength || lenC < kMinStableArmLength) return;
         glm::vec3 dirA = toA / lenA;
         glm::vec3 dirC = toC / lenC;
 
@@ -56,6 +79,7 @@ namespace {
         float clamped = glm::clamp(angle, c.minAngle, c.maxAngle);
         float error = clamped - angle;
         if (fabsf(error) < 1e-5f) return; // already within limits
+        error = glm::clamp(error, -kMaxAngleCorrectionPerIteration, kMaxAngleCorrectionPerIteration);
 
         glm::vec3 axis = glm::cross(dirA, dirC);
         float axisLen = glm::length(axis);
