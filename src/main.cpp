@@ -25,7 +25,6 @@
 #include "Skeleton.h"
 #include "CreatureMesh.h"
 #include "Animation.h"
-#include "IK.h"
 #include "Gait.h"
 #include "Terrain.h"
 #include "Physics.h"
@@ -383,6 +382,28 @@ int main() {
         {BackRightHip, BackRightKnee, BackRightFoot, 0.0f},
     };
 
+    // Phase 10, Step 4: each leg is its own PhysicsBody (Hip pinned each
+    // frame to wherever the spine's animated hip joint currently is, Knee,
+    // Foot) instead of exact analytic 2-bone IK — same "pin to a live
+    // external anchor" pattern Animation.cpp already uses for the tail/spine.
+    // See DEVELOPMENT_PLAN.md for the design writeup.
+    PhysicsBody legBodies[4];
+    bool legPhysicsInitialized = false;
+    // Fast: unlike the tail/spine (deliberately lagging), a foot needs to
+    // track the gait cycle closely or stepping reads as mushy/late. Distance
+    // constraints + the pole constraint below fully determine the knee from
+    // hip+foot geometrically (same as the old law-of-cosines solve), so the
+    // knee needs no muscle target of its own.
+    constexpr float kFootMuscleRate = 30.0f;
+    // Natural bend range: never fully straight (penguin-stiff) nor bent past
+    // a deep crouch — see Skeleton.cpp's kStandCrouchFactor, whose rest pose
+    // already sits around 110 degrees at the knee.
+    constexpr float kKneeMinBendAngle = glm::radians(40.0f);
+    constexpr float kKneeMaxBendAngle = glm::radians(170.0f);
+    // High friction: a planted foot shouldn't skid, unlike the free-sliding
+    // default GroundConstraint::friction is tuned for.
+    constexpr float kLegGroundFriction = 0.85f;
+
     // Persistent movement state: the creature steers toward wherever the
     // mouse points on the ground, instead of following a closed-form path.
     glm::vec3 bodyPos(0.0f, 0.0f, 0.0f);
@@ -639,29 +660,77 @@ int main() {
                                   glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
         glm::mat4 invBodyTransform = glm::inverse(bodyTransform);
 
-        // Now solve each leg's IK against its own ground point (X/Z from the
+        // Solve each leg's physics against its own ground point (X/Z from the
         // flat transform's sample, Y from the terrain height + swing arc),
-        // converted into the tilted body's local space. Analytic 2-bone IK,
-        // not FABRIK: with an exact 2-segment chain, FABRIK has no explicit
-        // bend-direction constraint and can flip the knee the wrong way as
-        // the target moves; the analytic solver always bends toward the
-        // local-forward pole direction by construction. hipLocal already
-        // carries the front-hip bend from ApplyAnimation, and worldFootXZ
-        // above already accounts for it too (see restFootLocal), so ONE
-        // shared bodyTransform is correct here for every leg.
+        // converted into the tilted body's local space — everything (hip
+        // pin, foot muscle target, ground reference height) lives in that
+        // same local frame, matching how the old analytic IK operated.
+        // hipLocal already carries the front-hip bend from ApplyAnimation,
+        // and worldFootXZ above already accounts for it too (see
+        // restFootLocal), so ONE shared bodyTransform is correct here for
+        // every leg.
+        if (!legPhysicsInitialized) {
+            for (int i = 0; i < 4; ++i) {
+                glm::vec3 hipRest = currentSkeleton.joints[legs[i].hip];
+                glm::vec3 kneeRest = currentSkeleton.joints[legs[i].knee];
+                glm::vec3 footRest = currentSkeleton.joints[legs[i].foot];
+                legBodies[i].particles = {
+                    {hipRest, hipRest, 0.0f},
+                    {kneeRest, kneeRest, 1.0f},
+                    {footRest, footRest, 1.0f},
+                };
+                legBodies[i].distanceConstraints = {
+                    {0, 1, glm::length(kneeRest - hipRest)},
+                    {1, 2, glm::length(footRest - kneeRest)},
+                };
+                legBodies[i].angleConstraints = {
+                    {0, 1, 2, kKneeMinBendAngle, kKneeMaxBendAngle},
+                };
+                // poleDir = local-forward, same fixed direction the old
+                // SolveTwoBoneIK used — see PoleConstraint's comment in
+                // Physics.h for how a reversed (bird-style) knee would flip
+                // this per leg later.
+                legBodies[i].poleConstraints = {
+                    {0, 1, 2, glm::vec3(0.0f, 0.0f, 1.0f)},
+                };
+                legBodies[i].muscleTargets = {
+                    {2, footRest, kFootMuscleRate},
+                };
+                legBodies[i].groundConstraints = {
+                    {2, 0.0f, kLegGroundFriction},
+                };
+            }
+            legPhysicsInitialized = true;
+        }
+
         for (int i = 0; i < 4; ++i) {
+            // Refresh rest lengths every frame — same reasoning as the tail/
+            // spine: live DNA edits (leg proportions) must reshape the leg
+            // immediately instead of fighting stale lengths from init.
+            legBodies[i].distanceConstraints[0].restLength =
+                glm::length(currentSkeleton.joints[legs[i].knee] - currentSkeleton.joints[legs[i].hip]);
+            legBodies[i].distanceConstraints[1].restLength =
+                glm::length(currentSkeleton.joints[legs[i].foot] - currentSkeleton.joints[legs[i].knee]);
+
             glm::vec3 worldTarget(worldFootXZ[i].x, groundHeight[i] + swingLift[i], worldFootXZ[i].z);
             glm::vec4 localTarget4 = invBodyTransform * glm::vec4(worldTarget, 1.0f);
+            // Same conversion for the bare ground point (no swing lift) —
+            // the terrain sample is a world-space height, so it needs to go
+            // through the same tilted-local transform as everything else
+            // the leg solves against.
+            glm::vec4 groundLocal4 = invBodyTransform * glm::vec4(worldFootXZ[i].x, groundHeight[i], worldFootXZ[i].z, 1.0f);
 
-            glm::vec3 hipLocal = animatedSkeleton.joints[legs[i].hip];
-            float upperLength = glm::length(currentSkeleton.joints[legs[i].knee] - currentSkeleton.joints[legs[i].hip]);
-            float lowerLength = glm::length(currentSkeleton.joints[legs[i].foot] - currentSkeleton.joints[legs[i].knee]);
+            legBodies[i].particles[0].position = animatedSkeleton.joints[legs[i].hip]; // hip pin, kept explicit
+            legBodies[i].muscleTargets[0].target = glm::vec3(localTarget4);
+            legBodies[i].groundConstraints[0].groundHeight = groundLocal4.y;
 
-            glm::vec3 solvedFoot;
-            glm::vec3 solvedKnee = SolveTwoBoneIK(hipLocal, glm::vec3(localTarget4), upperLength, lowerLength,
-                                                   glm::vec3(0.0f, 0.0f, 1.0f), solvedFoot);
-            animatedSkeleton.joints[legs[i].knee] = solvedKnee;
-            animatedSkeleton.joints[legs[i].foot] = solvedFoot;
+            // No gravity: unlike the tail (passively hanging) or spine
+            // (lightly drooping), a leg is actively held by its foot's
+            // muscle pull the whole time — real legs don't sag mid-stride.
+            StepPhysics(legBodies[i], dt, glm::vec3(0.0f));
+
+            animatedSkeleton.joints[legs[i].knee] = legBodies[i].particles[1].position;
+            animatedSkeleton.joints[legs[i].foot] = legBodies[i].particles[2].position;
         }
 
         uploadSkeleton(animatedSkeleton);

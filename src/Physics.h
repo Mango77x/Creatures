@@ -67,12 +67,28 @@ struct GroundConstraint {
     float friction = 0.6f; // 0 = frictionless slide, 1 = stops dead on contact
 };
 
+// Confines `knee` to the bend plane defined by the hip->foot axis and a
+// reference `poleDir` — the physics equivalent of IK.cpp's SolveTwoBoneIK
+// bend-axis construction, which guarantees a two-bone chain always bends
+// toward poleDir instead of wherever an unconstrained solve happens to
+// converge. AngleConstraint alone only limits how MUCH a joint bends, not
+// WHICH PLANE it bends in — a real knee doesn't wobble side to side, so
+// without this a physics-driven leg could. poleDir is a fixed direction
+// (e.g. the body's local-forward), not itself simulated; flipping its sign
+// per leg is how a reversed (bird-style) knee would be expressed later,
+// with no other change needed.
+struct PoleConstraint {
+    int hip, knee, foot;
+    glm::vec3 poleDir{0.0f, 0.0f, 1.0f};
+};
+
 struct PhysicsBody {
     std::vector<Particle> particles;
     std::vector<DistanceConstraint> distanceConstraints;
     std::vector<AngleConstraint> angleConstraints;
     std::vector<MuscleTarget> muscleTargets;
     std::vector<GroundConstraint> groundConstraints;
+    std::vector<PoleConstraint> poleConstraints;
 };
 
 // Verlet-integrates every non-pinned particle under `gravity` (velocity
@@ -80,5 +96,6 @@ struct PhysicsBody {
 // gravity and a muscle pull has nothing dissipating energy and can ring/
 // oscillate almost indefinitely instead of settling), then runs
 // `iterations` relaxation passes satisfying every constraint (distance,
-// angle, muscle pull, ground) in order. Call once per frame.
+// angle, pole, ground) in order (muscle pulls happen once per frame, not per
+// iteration — see MuscleTarget's comment). Call once per frame.
 void StepPhysics(PhysicsBody& body, float dt, const glm::vec3& gravity, int iterations = 8, float damping = 0.9f);

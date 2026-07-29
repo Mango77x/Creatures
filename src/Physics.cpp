@@ -109,6 +109,34 @@ namespace {
         p.position = glm::mix(p.position, m.target, t);
     }
 
+    // Projects `knee` back onto the hip->foot/poleDir bend plane — see
+    // PoleConstraint's comment in Physics.h. Only `knee` moves: combined with
+    // the hip-knee/knee-foot DistanceConstraints (which alone leave the knee
+    // free to sit anywhere on a circle around the hip-foot axis), this plane
+    // projection is what picks the one correct point on that circle, the
+    // same role IK.cpp's law-of-cosines construction plays analytically.
+    void SolvePoleConstraint(std::vector<Particle>& particles, const PoleConstraint& c) {
+        Particle& hip = particles[c.hip];
+        Particle& knee = particles[c.knee];
+        Particle& foot = particles[c.foot];
+        if (knee.inverseMass <= 0.0f) return;
+
+        glm::vec3 axis = foot.position - hip.position;
+        float axisLen = glm::length(axis);
+        if (axisLen < 1e-5f) return;
+        axis /= axisLen;
+
+        glm::vec3 poleOnPlane = c.poleDir - axis * glm::dot(c.poleDir, axis);
+        float poleLen = glm::length(poleOnPlane);
+        if (poleLen < 1e-5f) return; // poleDir degenerate (parallel to hip->foot) — no defined plane this frame
+        glm::vec3 bendDir = poleOnPlane / poleLen;
+        glm::vec3 planeNormal = glm::cross(axis, bendDir); // already unit: axis and bendDir are unit and perpendicular
+
+        glm::vec3 toKnee = knee.position - hip.position;
+        float off = glm::dot(toKnee, planeNormal);
+        knee.position -= planeNormal * off;
+    }
+
     void SolveGroundConstraint(std::vector<Particle>& particles, const GroundConstraint& g) {
         Particle& p = particles[g.particle];
         if (p.position.y >= g.groundHeight) return;
@@ -143,6 +171,9 @@ void StepPhysics(PhysicsBody& body, float dt, const glm::vec3& gravity, int iter
         }
         for (const AngleConstraint& c : body.angleConstraints) {
             SolveAngleConstraint(body.particles, c);
+        }
+        for (const PoleConstraint& c : body.poleConstraints) {
+            SolvePoleConstraint(body.particles, c);
         }
         for (const GroundConstraint& g : body.groundConstraints) {
             SolveGroundConstraint(body.particles, g);
