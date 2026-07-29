@@ -76,8 +76,22 @@ namespace {
         }
     }
 
-    void AppendSphere(std::vector<MeshVertex>& out, const glm::vec3& center, float radius, const glm::vec3& color) {
+    // General joint cap: axis is the "pole" direction (pointing along
+    // whichever bone it caps) and crossSection flattens the equatorial plane
+    // exactly like AppendCylinder's ellipse, in the same side/up basis. A
+    // sphere is just the degenerate case crossSection=(1,1) (any axis works,
+    // since that's rotationally symmetric) — this replaced a plain sphere
+    // cap after segmenting the spine into 4 sub-bones made internal joints
+    // (SpineSeg1/2/3) sprout visibly round "beads": those joints already
+    // meet at a matched radius in the rest pose (no seam to hide), so an
+    // unflattened sphere there just poked out past the spine's elliptical
+    // silhouette instead of blending into it.
+    void AppendEllipsoid(std::vector<MeshVertex>& out, const glm::vec3& center, float radius,
+                          const glm::vec3& axis, const glm::vec2& crossSection, const glm::vec3& color) {
         if (radius < 1e-5f) return;
+
+        glm::vec3 side, up;
+        PerpendicularBasis(axis, side, up);
 
         for (int stack = 0; stack < kSphereStacks; ++stack) {
             float phi0 = glm::pi<float>() * static_cast<float>(stack) / kSphereStacks;
@@ -87,24 +101,42 @@ namespace {
                 float theta0 = glm::two_pi<float>() * static_cast<float>(slice) / kSphereSlices;
                 float theta1 = glm::two_pi<float>() * static_cast<float>(slice + 1) / kSphereSlices;
 
-                auto pointOnSphere = [](float phi, float theta) {
-                    return glm::vec3(sinf(phi) * cosf(theta), cosf(phi), sinf(phi) * sinf(theta));
+                auto pointOnCap = [&](float phi, float theta) {
+                    float polar = cosf(phi);
+                    float equatorial = sinf(phi);
+                    return axis * polar
+                         + side * (equatorial * cosf(theta) * crossSection.x)
+                         + up   * (equatorial * sinf(theta) * crossSection.y);
+                };
+                // Same inverse-scale trick AppendCylinder uses: an ellipse's
+                // outward normal isn't the same direction as its surface
+                // offset once the two axes are scaled differently.
+                auto normalOnCap = [&](float phi, float theta) {
+                    float polar = cosf(phi);
+                    float equatorial = sinf(phi);
+                    return glm::normalize(axis * polar
+                         + side * (equatorial * cosf(theta) / crossSection.x)
+                         + up   * (equatorial * sinf(theta) / crossSection.y));
                 };
 
-                glm::vec3 n00 = pointOnSphere(phi0, theta0);
-                glm::vec3 n01 = pointOnSphere(phi0, theta1);
-                glm::vec3 n10 = pointOnSphere(phi1, theta0);
-                glm::vec3 n11 = pointOnSphere(phi1, theta1);
+                glm::vec3 n00 = normalOnCap(phi0, theta0);
+                glm::vec3 n01 = normalOnCap(phi0, theta1);
+                glm::vec3 n10 = normalOnCap(phi1, theta0);
+                glm::vec3 n11 = normalOnCap(phi1, theta1);
 
-                glm::vec3 p00 = center + n00 * radius;
-                glm::vec3 p01 = center + n01 * radius;
-                glm::vec3 p10 = center + n10 * radius;
-                glm::vec3 p11 = center + n11 * radius;
+                glm::vec3 p00 = center + pointOnCap(phi0, theta0) * radius;
+                glm::vec3 p01 = center + pointOnCap(phi0, theta1) * radius;
+                glm::vec3 p10 = center + pointOnCap(phi1, theta0) * radius;
+                glm::vec3 p11 = center + pointOnCap(phi1, theta1) * radius;
 
                 AppendTriangle(out, p00, p10, p11, n00, n10, n11, color, color, color);
                 AppendTriangle(out, p00, p11, p01, n00, n11, n01, color, color, color);
             }
         }
+    }
+
+    void AppendSphere(std::vector<MeshVertex>& out, const glm::vec3& center, float radius, const glm::vec3& color) {
+        AppendEllipsoid(out, center, radius, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 1.0f), color);
     }
 
     float BoneRadius(BoneKind kind, const DNA& dna) {
@@ -178,23 +210,36 @@ std::vector<MeshVertex> BuildCreatureMesh(const Skeleton& skeleton, const DNA& d
         return radius * kCreatureScale;
     };
 
-    // Each joint's cap sphere is sized (and colored) to whichever connected
-    // bone is thickest there — e.g. the pelvis picks up the spine's color
-    // over the thinner legs/tail, an ear tip picks up its own ear color
-    // since nothing else touches it.
+    // Each joint's cap is sized, colored, and shaped (axis + cross-section)
+    // to whichever connected bone is thickest there — e.g. the pelvis picks
+    // up the spine's color and flattened ellipse over the thinner legs/tail,
+    // an ear tip picks up its own ear color/axis since nothing else touches
+    // it. The axis is that bone's own direction so the cap's "poles" point
+    // along the bone instead of a fixed world axis, and blends into its
+    // taper instead of bulging past it.
     std::vector<float> jointRadius(skeleton.joints.size(), 0.0f);
     std::vector<glm::vec3> jointColor(skeleton.joints.size(), glm::vec3(1.0f));
+    std::vector<glm::vec3> jointAxis(skeleton.joints.size(), glm::vec3(0.0f, 1.0f, 0.0f));
+    std::vector<glm::vec2> jointCrossSection(skeleton.joints.size(), glm::vec2(1.0f));
     for (const Bone& bone : skeleton.bones) {
         float startRadius = effectiveRadius(bone, bone.startRadiusScale);
         float endRadius = effectiveRadius(bone, bone.endRadiusScale);
         glm::vec3 color = BoneColor(bone.kind, dna);
+        glm::vec3 boneVec = skeleton.joints[bone.endJoint] - skeleton.joints[bone.startJoint];
+        float boneLen = glm::length(boneVec);
+        glm::vec3 boneAxis = boneLen > 1e-5f ? boneVec / boneLen : glm::vec3(0.0f, 1.0f, 0.0f);
+        glm::vec2 crossSection = CrossSectionScale(bone.kind);
         if (startRadius > jointRadius[bone.startJoint]) {
             jointRadius[bone.startJoint] = startRadius;
             jointColor[bone.startJoint] = color;
+            jointAxis[bone.startJoint] = boneAxis;
+            jointCrossSection[bone.startJoint] = crossSection;
         }
         if (endRadius > jointRadius[bone.endJoint]) {
             jointRadius[bone.endJoint] = endRadius;
             jointColor[bone.endJoint] = color;
+            jointAxis[bone.endJoint] = boneAxis;
+            jointCrossSection[bone.endJoint] = crossSection;
         }
     }
 
@@ -206,7 +251,7 @@ std::vector<MeshVertex> BuildCreatureMesh(const Skeleton& skeleton, const DNA& d
     }
 
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {
-        AppendSphere(mesh, skeleton.joints[i], jointRadius[i], jointColor[i]);
+        AppendEllipsoid(mesh, skeleton.joints[i], jointRadius[i], jointAxis[i], jointCrossSection[i], jointColor[i]);
     }
 
     // Eyes are a point, not a bone (see Skeleton.h), so they get an explicit

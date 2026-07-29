@@ -11,6 +11,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <random>
 #include <vector>
@@ -61,6 +62,25 @@ namespace {
         if (g_Camera) g_Camera->ProcessScroll(static_cast<float>(yOffset));
     }
 
+    // Remembers which monitor/spot the window was on last time it closed —
+    // GLFW/Windows only default to the primary monitor otherwise, since
+    // nothing tracks "last position" unless the app saves it itself.
+    constexpr const char* kWindowStateFile = "window_state.txt";
+
+    bool LoadWindowPos(int& x, int& y) {
+        std::ifstream in(kWindowStateFile);
+        if (!in) return false;
+        in >> x >> y;
+        return static_cast<bool>(in);
+    }
+
+    void SaveWindowPos(GLFWwindow* window) {
+        int x, y;
+        glfwGetWindowPos(window, &x, &y);
+        std::ofstream out(kWindowStateFile);
+        out << x << " " << y;
+    }
+
     std::vector<float> FlattenBoneEndpoints(const Skeleton& skeleton) {
         std::vector<float> data;
         data.reserve(skeleton.bones.size() * 2 * 3);
@@ -108,6 +128,10 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    // Created hidden so the saved position (if any) can be applied before
+    // the window ever appears on the primary monitor — avoids a visible
+    // jump from primary to the remembered monitor on startup.
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Creatures - Procedural Creature Lab", nullptr, nullptr);
     if (!window) {
@@ -115,6 +139,12 @@ int main() {
         glfwTerminate();
         return -1;
     }
+
+    int savedWindowX, savedWindowY;
+    if (LoadWindowPos(savedWindowX, savedWindowY)) {
+        glfwSetWindowPos(window, savedWindowX, savedWindowY);
+    }
+    glfwShowWindow(window);
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
@@ -388,6 +418,10 @@ int main() {
         ImGui::SliderFloat("bodyFat", &currentDNA.bodyFat, 0.0f, 1.0f);
         ImGui::SliderFloat("muscle", &currentDNA.muscle, 0.0f, 1.0f);
         ImGui::SliderFloat("aggressiveness", &currentDNA.aggressiveness, 0.0f, 1.0f); // not wired to any visual yet
+        ImGui::SliderFloat("spineArch", &currentDNA.spineArch, -0.15f, 0.3f);
+        ImGui::SliderFloat("legHeightBias", &currentDNA.legHeightBias, -0.25f, 0.25f);
+        ImGui::SliderFloat("neckPitch", &currentDNA.neckPitch, 20.0f, 75.0f);
+        ImGui::SliderFloat("tailPitch", &currentDNA.tailPitch, -10.0f, 45.0f);
         ImGui::TextUnformatted("Details");
         ImGui::SliderFloat("headSize", &currentDNA.headSize, 0.6f, 1.8f);
         ImGui::SliderFloat("headLength", &currentDNA.headLength, 0.5f, 2.0f);
@@ -643,6 +677,8 @@ int main() {
 
         glfwSwapBuffers(window);
     }
+
+    SaveWindowPos(window);
 
     glDeleteVertexArrays(1, &meshVao);
     glDeleteBuffers(1, &meshVbo);

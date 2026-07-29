@@ -30,6 +30,11 @@ DNA GenerateDNA(uint32_t seed) {
     dna.muscle = RandRange(rng, 0.0f, 1.0f);
     dna.aggressiveness = RandRange(rng, 0.0f, 1.0f);
 
+    dna.spineArch = RandRange(rng, -0.15f, 0.3f);
+    dna.legHeightBias = RandRange(rng, -0.25f, 0.25f);
+    dna.neckPitch = RandRange(rng, 20.0f, 75.0f);
+    dna.tailPitch = RandRange(rng, -10.0f, 45.0f);
+
     dna.bodyHue = RandRange(rng, 0.0f, 1.0f);
     float accentShiftMagnitude = RandRange(rng, 0.15f, 0.45f);
     dna.accentHueShift = RandRange(rng, 0.0f, 1.0f) < 0.5f ? accentShiftMagnitude : -accentShiftMagnitude;

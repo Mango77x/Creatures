@@ -4,6 +4,15 @@
 #include <glm/gtc/constants.hpp>
 
 namespace {
+    // Vertical offset at fraction t (0 = pelvis, 1 = chest), peaking at
+    // mid-body like SpineProfile's bulge — positive archAmount arches the
+    // spine up (cat/hyena-like), negative sags it (swayback). Both ends stay
+    // put (sinf(0) = sinf(pi) = 0) since that's where the legs actually
+    // attach; only the unsupported mid-span moves.
+    float SpineArchOffset(float t, float archAmount) {
+        return sinf(t * glm::pi<float>()) * archAmount;
+    }
+
     // Spine width-profile multiplier at fraction t (0 = pelvis, 1 = chest):
     // narrowest at both attachments, fullest mid-body — a barrel ribcage
     // instead of a uniform-taper tube. bodyFat pushes the mid-body bulge
@@ -50,15 +59,25 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const glm::vec3 up(0.0f, 1.0f, 0.0f);
     const glm::vec3 right = glm::normalize(glm::cross(up, forward));
 
-    const float legLength = dna.bodyHeight;
-    const glm::vec3 pelvis(0.0f, legLength, 0.0f);
-    const glm::vec3 chestEnd = pelvis + forward * dna.bodyLength;
+    // Front/back leg height asymmetry (legHeightBias): pelvis and chestEnd no
+    // longer sit at the same height, which is what made every seed stand
+    // perfectly level regardless of DNA — no real quadruped does that.
+    const float backLegLength = dna.bodyHeight * (1.0f - dna.legHeightBias);
+    const float frontLegLength = dna.bodyHeight * (1.0f + dna.legHeightBias);
+    const glm::vec3 pelvis(0.0f, backLegLength, 0.0f);
+    glm::vec3 chestEnd = pelvis + forward * dna.bodyLength;
+    chestEnd.y = frontLegLength;
 
-    const glm::vec3 neckDir = glm::normalize(up + forward);
+    // Neck/tail take-off angle now comes from DNA instead of a fixed
+    // constant, so seeds actually vary in silhouette (giraffe-like vertical
+    // neck vs. boar-like horizontal one) and not just in length.
+    const float neckPitchRad = glm::radians(dna.neckPitch);
+    const glm::vec3 neckDir = glm::normalize(forward * cosf(neckPitchRad) + up * sinf(neckPitchRad));
     const glm::vec3 neckEnd = chestEnd + neckDir * dna.neckLength;
     const glm::vec3 headTip = neckEnd + neckDir * (dna.headLength * 0.3f);
 
-    const glm::vec3 tailDir = glm::normalize(up * 0.3f - forward);
+    const float tailPitchRad = glm::radians(dna.tailPitch);
+    const glm::vec3 tailDir = glm::normalize(-forward * cosf(tailPitchRad) + up * sinf(tailPitchRad));
     const glm::vec3 tailMid = pelvis + tailDir * (dna.tailLength * 0.5f);
     const glm::vec3 tailTip = pelvis + tailDir * dna.tailLength;
 
@@ -70,13 +89,12 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[TailTip] = tailTip;
 
     // Spine segmentation (Phase 9): three evenly-spaced points between
-    // Pelvis and ChestEnd, straight-line interpolated (the spine's rest pose
-    // is a straight line regardless — segmentation is purely a mesh/profile
-    // change here, not a bend). See SpineProfile for the width each segment
-    // tapers to/from.
-    j[SpineSeg1] = glm::mix(pelvis, chestEnd, 0.25f);
-    j[SpineSeg2] = glm::mix(pelvis, chestEnd, 0.5f);
-    j[SpineSeg3] = glm::mix(pelvis, chestEnd, 0.75f);
+    // Pelvis and ChestEnd, straight-line interpolated then bowed vertically
+    // by SpineArchOffset (spineArch was a flat line before that field
+    // existed). See SpineProfile for the width each segment tapers to/from.
+    j[SpineSeg1] = glm::mix(pelvis, chestEnd, 0.25f) + up * SpineArchOffset(0.25f, dna.spineArch * dna.bodyHeight);
+    j[SpineSeg2] = glm::mix(pelvis, chestEnd, 0.5f) + up * SpineArchOffset(0.5f, dna.spineArch * dna.bodyHeight);
+    j[SpineSeg3] = glm::mix(pelvis, chestEnd, 0.75f) + up * SpineArchOffset(0.75f, dna.spineArch * dna.bodyHeight);
 
     // Head appendages, offset from HeadTip. hornSize/earSize/eyeSize already
     // existed in DNA but only sized the head capsule before Phase 9 — here
@@ -119,10 +137,10 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const glm::vec3 frontHipBase = chestEnd - forward * 0.15f;
     const glm::vec3 backHipBase = pelvis + forward * 0.15f;
 
-    BuildLeg(j, FrontLeftHip, FrontLeftKnee, FrontLeftFoot, frontHipBase - right * sideOffset, legLength, forward);
-    BuildLeg(j, FrontRightHip, FrontRightKnee, FrontRightFoot, frontHipBase + right * sideOffset, legLength, forward);
-    BuildLeg(j, BackLeftHip, BackLeftKnee, BackLeftFoot, backHipBase - right * sideOffset, legLength, forward);
-    BuildLeg(j, BackRightHip, BackRightKnee, BackRightFoot, backHipBase + right * sideOffset, legLength, forward);
+    BuildLeg(j, FrontLeftHip, FrontLeftKnee, FrontLeftFoot, frontHipBase - right * sideOffset, frontLegLength, forward);
+    BuildLeg(j, FrontRightHip, FrontRightKnee, FrontRightFoot, frontHipBase + right * sideOffset, frontLegLength, forward);
+    BuildLeg(j, BackLeftHip, BackLeftKnee, BackLeftFoot, backHipBase - right * sideOffset, backLegLength, forward);
+    BuildLeg(j, BackRightHip, BackRightKnee, BackRightFoot, backHipBase + right * sideOffset, backLegLength, forward);
 
     const float spineProfile0 = SpineProfile(0.0f, dna.bodyFat);
     const float spineProfile1 = SpineProfile(0.25f, dna.bodyFat);

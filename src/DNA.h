@@ -26,6 +26,27 @@ struct DNA {
     float muscle = 0.5f;
     float aggressiveness = 0.5f;
 
+    // Fraction of bodyHeight the spine arches up (positive, cat/hyena-like)
+    // or sags down (negative, swayback) at its mid-point — 0 is a dead-straight
+    // line, which is what every seed produced before this field existed.
+    float spineArch = 0.0f;
+    // Front/back leg length asymmetry, as a fraction of bodyHeight applied in
+    // opposite directions (front = bodyHeight*(1+bias), back = bodyHeight*
+    // (1-bias)) — 0 keeps front and back the same height, which no real
+    // quadruped actually has (hyenas/giraffes taller at the shoulder, rabbits/
+    // kangaroos taller at the hip).
+    float legHeightBias = 0.0f;
+    // Neck take-off angle in degrees, measured up from horizontal (forward).
+    // 45 matches the old fixed constant (normalize(up+forward)); low values
+    // read as boar/lizard-like (near-horizontal), high values as giraffe-like
+    // (near-vertical).
+    float neckPitch = 45.0f;
+    // Tail take-off angle in degrees, measured up from horizontal-backward.
+    // 16.7 matches the old fixed constant (normalize(up*0.3 - forward)). A
+    // creature can carry its neck high and its tail low (or vice versa), so
+    // this is its own field rather than sharing neckPitch.
+    float tailPitch = 16.7f;
+
     // Color (see Palette.h): bodyHue/accentHueShift pick the two hues, the
     // saturation/value pair sets how rich vs. how light the whole palette
     // reads — so two creatures with the same hue can still look distinct.
