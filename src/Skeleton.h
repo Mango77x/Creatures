@@ -22,7 +22,12 @@ enum class BoneKind { Spine, Neck, Head, Tail, Leg, Horn, Ear };
 // used directly as an array index — animation code needs to reach specific
 // joints (e.g. HeadTip) by name, not just iterate bones generically.
 enum SkeletonJoint {
-    Pelvis, ChestEnd, NeckEnd, HeadTip, TailMid, TailTip,
+    // SnoutBase sits between NeckEnd and HeadTip: the boundary between the
+    // short, round cranium (NeckEnd->SnoutBase) and the tapering snout
+    // (SnoutBase->HeadTip) — see BuildSkeleton. Horns/ears/eyes anchor here,
+    // not at HeadTip (the nose tip), since that's where they actually sit on
+    // a real skull.
+    Pelvis, ChestEnd, NeckEnd, SnoutBase, HeadTip, TailMid, TailTip,
     FrontLeftHip, FrontLeftKnee, FrontLeftFoot,
     FrontRightHip, FrontRightKnee, FrontRightFoot,
     BackLeftHip, BackLeftKnee, BackLeftFoot,

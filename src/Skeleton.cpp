@@ -74,7 +74,18 @@ Skeleton BuildSkeleton(const DNA& dna) {
     const float neckPitchRad = glm::radians(dna.neckPitch);
     const glm::vec3 neckDir = glm::normalize(forward * cosf(neckPitchRad) + up * sinf(neckPitchRad));
     const glm::vec3 neckEnd = chestEnd + neckDir * dna.neckLength;
-    const glm::vec3 headTip = neckEnd + neckDir * (dna.headLength * 0.3f);
+
+    // Cranium length is tied to the head's own radius (computed below, see
+    // headRadiusApprox) rather than headLength, so it always reads as a
+    // short, round "ball" regardless of how long the snout gets — headLength
+    // only controls the snout's protrusion in front of it. Splitting the old
+    // single uniform capsule this way is what lets a short headLength read
+    // as a compact cat/bulldog-like head and a long one as a real wolf/
+    // horse/crocodile muzzle, instead of both just being different lengths
+    // of the same plain tube.
+    const float headRadiusApprox = 0.10f + dna.headSize * 0.11f;
+    const glm::vec3 snoutBase = neckEnd + neckDir * (headRadiusApprox * 0.9f);
+    const glm::vec3 headTip = snoutBase + neckDir * (dna.headLength * 0.3f);
 
     const float tailPitchRad = glm::radians(dna.tailPitch);
     const glm::vec3 tailDir = glm::normalize(-forward * cosf(tailPitchRad) + up * sinf(tailPitchRad));
@@ -84,6 +95,7 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[Pelvis] = pelvis;
     j[ChestEnd] = chestEnd;
     j[NeckEnd] = neckEnd;
+    j[SnoutBase] = snoutBase;
     j[HeadTip] = headTip;
     j[TailMid] = tailMid;
     j[TailTip] = tailTip;
@@ -96,44 +108,52 @@ Skeleton BuildSkeleton(const DNA& dna) {
     j[SpineSeg2] = glm::mix(pelvis, chestEnd, 0.5f) + up * SpineArchOffset(0.5f, dna.spineArch * dna.bodyHeight);
     j[SpineSeg3] = glm::mix(pelvis, chestEnd, 0.75f) + up * SpineArchOffset(0.75f, dna.spineArch * dna.bodyHeight);
 
-    // Head appendages, offset from HeadTip. hornSize/earSize/eyeSize already
-    // existed in DNA but only sized the head capsule before Phase 9 — here
-    // they place actual small bone chains (horn/ears) and a point (eyes).
+    // Head appendages, offset from SnoutBase (the cranium) rather than
+    // HeadTip (the nose tip) — a real skull carries horns/ears/eyes on the
+    // braincase, not at the end of the muzzle. hornSize/earSize/eyeSize
+    // already existed in DNA but only sized the head capsule before Phase 9
+    // — here they place actual small bone chains (horn/ears) and a point
+    // (eyes).
     //
-    // The head's own joint-cap sphere (see CreatureMesh.cpp's BoneRadius for
-    // BoneKind::Head) has radius ~0.17-0.30 — bigger than earLength/eyeOffset
-    // were originally, so ears/eyes ended up entirely inside that sphere and
-    // never poked through (invisible regardless of DNA). headRadiusApprox
-    // mirrors that formula so appendages are placed relative to the actual
-    // head surface instead of a fixed offset that happened to be too small.
-    // Driven by headSize, not eyeSize — head size used to be a confusing
-    // side effect of how big the eyes were; now it's its own DNA field.
-    const float headRadiusApprox = 0.10f + dna.headSize * 0.11f;
+    // headRadiusApprox mirrors CreatureMesh.cpp's BoneRadius(BoneKind::Head)
+    // formula so appendages are placed relative to the actual cranium
+    // surface instead of a fixed offset that might sit inside or far outside
+    // it depending on headSize.
 
     // hornSize can be 0, so the horn cylinder can end up zero-length —
     // AppendCylinder already skips those, giving hornless creatures for free
     // instead of needing a separate "has horn" flag. Unlike ears/eyes, the
     // horn deliberately does NOT get a head-radius clearance added: a small
-    // horn merging into the head silhouette (only clearing the surface once
-    // hornSize is large enough on its own) reads as "small horn", not a bug.
+    // horn merging into the cranium's silhouette (only clearing the surface
+    // once hornSize is large enough on its own) reads as "small horn", not a
+    // bug.
     const glm::vec3 hornDir = glm::normalize(neckDir + up * 0.6f);
-    j[HornTip] = headTip + hornDir * (dna.hornSize * 1.1f);
+    j[HornTip] = snoutBase + hornDir * (dna.hornSize * 1.1f);
 
     const glm::vec3 earDirLeft = glm::normalize(up - right * 0.7f);
     const glm::vec3 earDirRight = glm::normalize(up + right * 0.7f);
     const float earReach = headRadiusApprox + 0.03f + dna.earSize * 0.35f;
-    j[LeftEarTip] = headTip + earDirLeft * earReach;
-    j[RightEarTip] = headTip + earDirRight * earReach;
+    j[LeftEarTip] = snoutBase + earDirLeft * earReach;
+    j[RightEarTip] = snoutBase + earDirRight * earReach;
 
-    // Eye center sits exactly on the head surface (distance headRadiusApprox
-    // from HeadTip) so roughly half the eye sphere pokes out — visible
-    // without floating detached off the head.
+    // Eye center sits exactly on the cranium surface (distance
+    // headRadiusApprox from SnoutBase) so roughly half the eye sphere pokes
+    // out — visible without floating detached off the head.
     const glm::vec3 eyeDirLeft = glm::normalize(neckDir * 0.35f - right);
     const glm::vec3 eyeDirRight = glm::normalize(neckDir * 0.35f + right);
-    j[LeftEye] = headTip + eyeDirLeft * headRadiusApprox;
-    j[RightEye] = headTip + eyeDirRight * headRadiusApprox;
+    j[LeftEye] = snoutBase + eyeDirLeft * headRadiusApprox;
+    j[RightEye] = snoutBase + eyeDirRight * headRadiusApprox;
 
-    const float sideOffset = 0.3f + dna.bodyFat * 0.3f;
+    // Mirrors CreatureMesh.cpp's BoneRadius(Spine, dna) * CrossSectionScale
+    // (Spine).x, at SpineProfile's exact endpoint scale (0.7, constant
+    // regardless of bodyFat since the profile's bulge term is zero at both
+    // t=0 and t=1 — see SpineProfile). Places the hip/shoulder joint right
+    // at the torso's actual rendered surface instead of a fixed offset
+    // unrelated to body size, so the leg reads as emerging from the ribcage
+    // instead of a floating strut — same idea as headRadiusApprox below
+    // placing ears/eyes exactly on the head's surface.
+    const float spineEndHalfWidth = (0.22f + dna.bodyFat * 0.18f + dna.muscle * 0.08f) * 0.7f * 1.2f;
+    const float sideOffset = spineEndHalfWidth;
     const glm::vec3 frontHipBase = chestEnd - forward * 0.15f;
     const glm::vec3 backHipBase = pelvis + forward * 0.15f;
 
@@ -158,26 +178,32 @@ Skeleton BuildSkeleton(const DNA& dna) {
         {SpineSeg2, SpineSeg3, BoneKind::Spine, spineProfile2, spineProfile3},
         {SpineSeg3, ChestEnd, BoneKind::Spine, spineProfile3, spineProfile4},
         {ChestEnd, NeckEnd, BoneKind::Neck},
-        {NeckEnd, HeadTip, BoneKind::Head},
-        {HeadTip, HornTip, BoneKind::Horn, 1.0f, 0.05f},
-        {HeadTip, LeftEarTip, BoneKind::Ear, 1.0f, 0.6f},
-        {HeadTip, RightEarTip, BoneKind::Ear, 1.0f, 0.6f},
+        // Cranium: short, no taper (reads as a rounded "ball" since its
+        // length is tied to its own radius, see headRadiusApprox/snoutBase
+        // above) — not headLength, which only governs the snout below.
+        {NeckEnd, SnoutBase, BoneKind::Head},
+        // Snout: tapers from the cranium's full radius down to
+        // snoutTaper's fraction of it at the nose tip.
+        {SnoutBase, HeadTip, BoneKind::Head, 1.0f, dna.snoutTaper},
+        {SnoutBase, HornTip, BoneKind::Horn, 1.0f, 0.05f},
+        {SnoutBase, LeftEarTip, BoneKind::Ear, 1.0f, 0.6f},
+        {SnoutBase, RightEarTip, BoneKind::Ear, 1.0f, 0.6f},
         {Pelvis, TailMid, BoneKind::Tail, 1.0f, 0.55f},
         {TailMid, TailTip, BoneKind::Tail, 0.55f, 0.12f},
 
-        {ChestEnd, FrontLeftHip, BoneKind::Leg},
+        // No ChestEnd/Pelvis -> Hip "strut" bone: the hip joint itself now
+        // sits right at the torso's surface (see spineEndHalfWidth above),
+        // so its own joint cap blends it into the spine mesh instead of a
+        // separate straight segment bridging a gap.
         {FrontLeftHip, FrontLeftKnee, BoneKind::Leg},
         {FrontLeftKnee, FrontLeftFoot, BoneKind::Leg},
 
-        {ChestEnd, FrontRightHip, BoneKind::Leg},
         {FrontRightHip, FrontRightKnee, BoneKind::Leg},
         {FrontRightKnee, FrontRightFoot, BoneKind::Leg},
 
-        {Pelvis, BackLeftHip, BoneKind::Leg},
         {BackLeftHip, BackLeftKnee, BoneKind::Leg},
         {BackLeftKnee, BackLeftFoot, BoneKind::Leg},
 
-        {Pelvis, BackRightHip, BoneKind::Leg},
         {BackRightHip, BackRightKnee, BoneKind::Leg},
         {BackRightKnee, BackRightFoot, BoneKind::Leg},
     };

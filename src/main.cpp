@@ -393,47 +393,61 @@ int main() {
         }
         ImGui::Checkbox("Show skeleton (debug)", &showSkeletonDebug);
         ImGui::SliderInt("Pixel scale", &pixelScale, 1, 10);
-        ImGui::Separator();
-        ImGui::TextUnformatted("Animation");
-        ImGui::SliderFloat3("Look-at target", &lookAtTarget.x, -2.0f, 5.0f);
-        ImGui::Separator();
-        ImGui::TextUnformatted("Gait");
-        ImGui::SliderFloat("Gait speed", &gaitParams.speed, 0.2f, 3.0f);
-        ImGui::SliderFloat("Stride length", &gaitParams.strideLength, 0.1f, 1.0f);
-        ImGui::SliderFloat("Lift height", &gaitParams.liftHeight, 0.02f, 0.4f);
-        ImGui::Separator();
-        // Live-editable DNA (Phase 9): every field here writes straight into
-        // currentDNA and the skeleton/mesh rebuild every frame below, so
-        // dragging a slider reshapes/recolors the creature immediately —
-        // hand-tuning on top of a seed, the same "start from a generated
-        // beast, then tweak it" workflow as Critter Crosser's own editor
-        // (see the screenshots discussed in CLAUDE.md), just DNA-driven
-        // instead of a per-segment manual sculpt.
         ImGui::Text("seed: %u", currentDNA.seed);
-        ImGui::TextUnformatted("Body");
-        ImGui::SliderFloat("bodyLength", &currentDNA.bodyLength, 0.5f, 2.0f);
-        ImGui::SliderFloat("bodyHeight", &currentDNA.bodyHeight, 0.35f, 1.35f);
-        ImGui::SliderFloat("neckLength", &currentDNA.neckLength, 0.15f, 1.8f);
-        ImGui::SliderFloat("tailLength", &currentDNA.tailLength, 0.15f, 2.2f);
-        ImGui::SliderFloat("bodyFat", &currentDNA.bodyFat, 0.0f, 1.0f);
-        ImGui::SliderFloat("muscle", &currentDNA.muscle, 0.0f, 1.0f);
-        ImGui::SliderFloat("aggressiveness", &currentDNA.aggressiveness, 0.0f, 1.0f); // not wired to any visual yet
-        ImGui::SliderFloat("spineArch", &currentDNA.spineArch, -0.15f, 0.3f);
-        ImGui::SliderFloat("legHeightBias", &currentDNA.legHeightBias, -0.25f, 0.25f);
-        ImGui::SliderFloat("neckPitch", &currentDNA.neckPitch, 20.0f, 75.0f);
-        ImGui::SliderFloat("tailPitch", &currentDNA.tailPitch, -10.0f, 45.0f);
-        ImGui::TextUnformatted("Details");
-        ImGui::SliderFloat("headSize", &currentDNA.headSize, 0.6f, 1.8f);
-        ImGui::SliderFloat("headLength", &currentDNA.headLength, 0.5f, 2.0f);
-        ImGui::SliderFloat("hornSize", &currentDNA.hornSize, 0.0f, 0.6f);
-        ImGui::SliderFloat("eyeSize", &currentDNA.eyeSize, 0.05f, 0.3f);
-        ImGui::SliderFloat("earSize", &currentDNA.earSize, 0.05f, 0.4f);
-        ImGui::Text("legCount: %d", currentDNA.legCount); // fixed quadruped, see CLAUDE.md
-        ImGui::TextUnformatted("Color");
-        ImGui::SliderFloat("bodyHue", &currentDNA.bodyHue, 0.0f, 1.0f);
-        ImGui::SliderFloat("accentHueShift", &currentDNA.accentHueShift, -0.45f, 0.45f);
-        ImGui::SliderFloat("colorSaturation", &currentDNA.colorSaturation, 0.0f, 1.0f);
-        ImGui::SliderFloat("colorValue", &currentDNA.colorValue, 0.0f, 1.0f);
+        ImGui::Separator();
+
+        // Tabbed layout (Phase 9): the panel kept growing as more DNA fields
+        // landed, to the point of needing constant scrolling. Split into
+        // browser-style tabs instead — loosely mirrors RujiK's own
+        // Body/Colr/Limb/Detl editor tabs (screenshots discussed in
+        // CLAUDE.md), though our grouping follows this project's existing
+        // section names rather than copying his exactly. Every slider still
+        // writes straight into currentDNA/gaitParams/lookAtTarget and the
+        // skeleton/mesh rebuild every frame below, so switching tabs doesn't
+        // change any behavior — it's purely how the same controls are laid out.
+        if (ImGui::BeginTabBar("DNATabs")) {
+            if (ImGui::BeginTabItem("Body")) {
+                ImGui::SliderFloat("bodyLength", &currentDNA.bodyLength, 0.5f, 2.0f);
+                ImGui::SliderFloat("bodyHeight", &currentDNA.bodyHeight, 0.35f, 1.35f);
+                ImGui::SliderFloat("neckLength", &currentDNA.neckLength, 0.15f, 1.8f);
+                ImGui::SliderFloat("tailLength", &currentDNA.tailLength, 0.15f, 2.2f);
+                ImGui::SliderFloat("bodyFat", &currentDNA.bodyFat, 0.0f, 1.0f);
+                ImGui::SliderFloat("muscle", &currentDNA.muscle, 0.0f, 1.0f);
+                ImGui::SliderFloat("aggressiveness", &currentDNA.aggressiveness, 0.0f, 1.0f); // not wired to any visual yet
+                ImGui::SliderFloat("spineArch", &currentDNA.spineArch, -0.15f, 0.3f);
+                ImGui::SliderFloat("legHeightBias", &currentDNA.legHeightBias, -0.25f, 0.25f);
+                ImGui::SliderFloat("neckPitch", &currentDNA.neckPitch, 20.0f, 75.0f);
+                ImGui::SliderFloat("tailPitch", &currentDNA.tailPitch, -10.0f, 45.0f);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Details")) {
+                ImGui::SliderFloat("headSize", &currentDNA.headSize, 0.6f, 1.8f);
+                ImGui::SliderFloat("headLength", &currentDNA.headLength, 0.5f, 2.0f);
+                ImGui::SliderFloat("snoutTaper", &currentDNA.snoutTaper, 0.15f, 0.85f);
+                ImGui::SliderFloat("hornSize", &currentDNA.hornSize, 0.0f, 0.6f);
+                ImGui::SliderFloat("eyeSize", &currentDNA.eyeSize, 0.05f, 0.3f);
+                ImGui::SliderFloat("earSize", &currentDNA.earSize, 0.05f, 0.4f);
+                ImGui::Text("legCount: %d", currentDNA.legCount); // fixed quadruped, see CLAUDE.md
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Color")) {
+                ImGui::SliderFloat("bodyHue", &currentDNA.bodyHue, 0.0f, 1.0f);
+                ImGui::SliderFloat("accentHueShift", &currentDNA.accentHueShift, -0.45f, 0.45f);
+                ImGui::SliderFloat("colorSaturation", &currentDNA.colorSaturation, 0.0f, 1.0f);
+                ImGui::SliderFloat("colorValue", &currentDNA.colorValue, 0.0f, 1.0f);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Animation")) {
+                ImGui::SliderFloat3("Look-at target", &lookAtTarget.x, -2.0f, 5.0f);
+                ImGui::Separator();
+                ImGui::TextUnformatted("Gait");
+                ImGui::SliderFloat("Gait speed", &gaitParams.speed, 0.2f, 3.0f);
+                ImGui::SliderFloat("Stride length", &gaitParams.strideLength, 0.1f, 1.0f);
+                ImGui::SliderFloat("Lift height", &gaitParams.liftHeight, 0.02f, 0.4f);
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
         ImGui::End();
 
         // Rebuilt every frame (cheap: no allocation beyond a small vector,

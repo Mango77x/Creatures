@@ -43,5 +43,6 @@ DNA GenerateDNA(uint32_t seed) {
 
     dna.headSize = RandRange(rng, 0.6f, 1.8f);
     dna.headLength = RandRange(rng, 0.5f, 2.0f);
+    dna.snoutTaper = RandRange(rng, 0.15f, 0.85f);
     return dna;
 }

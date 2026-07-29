@@ -22,6 +22,10 @@ struct DNA {
     // and a short-wide head should be reachable separately, not locked
     // together as one "size" knob.
     float headLength = 1.0f;
+    // Snout tip radius as a fraction of the cranium's (base) radius — low
+    // values taper sharply toward a point (fox/greyhound), high values stay
+    // almost as thick as the cranium (bear/hippo, barely tapers).
+    float snoutTaper = 0.5f;
     float bodyFat = 0.5f;
     float muscle = 0.5f;
     float aggressiveness = 0.5f;

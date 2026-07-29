@@ -90,6 +90,7 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     Skeleton animated = rest;
 
     const glm::vec3 restNeckEnd = rest.joints[NeckEnd];
+    const glm::vec3 restSnoutBase = rest.joints[SnoutBase];
     const glm::vec3 restHeadTip = rest.joints[HeadTip];
     const glm::vec3 restTailMid = rest.joints[TailMid];
     const glm::vec3 restTailTip = rest.joints[TailTip];
@@ -172,8 +173,13 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     // Same fast headAngleLag, not a separate follow speed — otherwise the
     // head would visibly kink back toward the unbent rest direction right
     // where it meets the already-bent neck. Rigidly attached to neckEnd for
-    // the same reason neckEnd is rigidly attached to the chest.
-    glm::vec3 headTipRigid = state.neckEnd + RotateVectorAroundY(restHeadTip - restNeckEnd, state.headAngleLag);
+    // the same reason neckEnd is rigidly attached to the chest. SnoutBase
+    // (cranium/snout boundary) chains in the same way before HeadTip — if it
+    // stayed at its rest position while NeckEnd/HeadTip rotated around it,
+    // the snout would visibly stretch/twist during a head turn exactly like
+    // the old neckEnd/headTip bug this same pattern already fixed.
+    glm::vec3 snoutBaseRigid = state.neckEnd + RotateVectorAroundY(restSnoutBase - restNeckEnd, state.headAngleLag);
+    glm::vec3 headTipRigid = snoutBaseRigid + RotateVectorAroundY(restHeadTip - restSnoutBase, state.headAngleLag);
 
     // Only the look-at glance gets its own lag, as a small offset layered on
     // top of the otherwise-rigid head — lagging a small nudge can't stretch
@@ -199,23 +205,24 @@ Skeleton ApplyAnimation(AnimationState& state, const Skeleton& rest, float time,
     state.tailTip = ExpLerp(state.tailTip, tailTipTarget, kTailFollowSpeed * 0.8f, dt);
 
     animated.joints[NeckEnd] = state.neckEnd;
+    animated.joints[SnoutBase] = snoutBaseRigid;
     animated.joints[HeadTip] = state.headTip;
     animated.joints[TailMid] = state.tailMid;
     animated.joints[TailTip] = state.tailTip;
 
-    // Horns/ears/eyes: rotate their rest-pose offset from the head by
-    // however much the head itself has bent (headAngleLag), THEN anchor at
-    // wherever the head currently is (state.headTip, which already folds in
-    // lag and the look-at lean as a translation). A pure translation delta
+    // Horns/ears/eyes: rotate their rest-pose offset from SnoutBase (the
+    // cranium, where they actually attach — see Skeleton.cpp) by however
+    // much the head itself has bent (headAngleLag), THEN anchor at wherever
+    // the cranium currently is (snoutBaseRigid). A pure translation delta
     // (the old approach) only approximates a small rotation — once turns
     // bend the head by tens of degrees, translating alone visibly detaches
-    // them from the head's actual surface, e.g. an eye still pointing the
+    // them from the skull's actual surface, e.g. an eye still pointing the
     // old direction while the head mesh underneath it has turned.
-    animated.joints[HornTip] = state.headTip + RotateVectorAroundY(rest.joints[HornTip] - restHeadTip, state.headAngleLag);
-    animated.joints[LeftEarTip] = state.headTip + RotateVectorAroundY(rest.joints[LeftEarTip] - restHeadTip, state.headAngleLag);
-    animated.joints[RightEarTip] = state.headTip + RotateVectorAroundY(rest.joints[RightEarTip] - restHeadTip, state.headAngleLag);
-    animated.joints[LeftEye] = state.headTip + RotateVectorAroundY(rest.joints[LeftEye] - restHeadTip, state.headAngleLag);
-    animated.joints[RightEye] = state.headTip + RotateVectorAroundY(rest.joints[RightEye] - restHeadTip, state.headAngleLag);
+    animated.joints[HornTip] = snoutBaseRigid + RotateVectorAroundY(rest.joints[HornTip] - restSnoutBase, state.headAngleLag);
+    animated.joints[LeftEarTip] = snoutBaseRigid + RotateVectorAroundY(rest.joints[LeftEarTip] - restSnoutBase, state.headAngleLag);
+    animated.joints[RightEarTip] = snoutBaseRigid + RotateVectorAroundY(rest.joints[RightEarTip] - restSnoutBase, state.headAngleLag);
+    animated.joints[LeftEye] = snoutBaseRigid + RotateVectorAroundY(rest.joints[LeftEye] - restSnoutBase, state.headAngleLag);
+    animated.joints[RightEye] = snoutBaseRigid + RotateVectorAroundY(rest.joints[RightEye] - restSnoutBase, state.headAngleLag);
 
     state.breathScale = sinf(time * kBreathSpeed) * kBreathAmount;
 
