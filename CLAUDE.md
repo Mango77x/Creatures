@@ -184,4 +184,3 @@ Moved forward from the old single "Export" phase (user decision, 2026-07-29): wi
 - Ask before introducing new dependencies that are not in this document's technical stack.
 - Before touching anything visual (palette, shaders, creature shape/silhouette, UI look), review the reference screenshots in `reference/critter-crosser/` and the "Visual reference" section of this document — do not improvise the style from memory.
 - The screenshots only serve for mood/palette/composition. To claim how something is technically built (3D vs 2D, engine, shaders, pipeline), looking at images is not enough — look for interviews/devlogs/direct statements from the developer before treating it as "confirmed" (see the methodology note in "Inspiration and real technical reference").
-- Never add attribution trailers (`Co-Authored-By`, `Claude-Session`, "Generated with Claude Code") to commits or pull requests.
